@@ -8,6 +8,7 @@ class AuthService: ObservableObject {
     @Published var firebaseUser: FirebaseAuth.User?
     @Published var currentUser: AppUser?
     @Published var isLoading: Bool = false
+    @Published var hasResolvedAuthState: Bool = false
     @Published var errorMessage: String?
 
     private var authStateHandle: AuthStateDidChangeListenerHandle?
@@ -22,6 +23,7 @@ class AuthService: ObservableObject {
                 } else {
                     self?.currentUser = nil
                 }
+                self?.hasResolvedAuthState = true
             }
         }
     }

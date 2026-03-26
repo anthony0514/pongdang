@@ -6,7 +6,12 @@ struct ContentView: View {
     @StateObject private var spaceService = SpaceService()
 
     var body: some View {
-        if authService.currentUser == nil {
+        if !authService.hasResolvedAuthState {
+            ZStack {
+                DesignSystem.Backgrounds.lakeGradient.ignoresSafeArea()
+                ProgressView()
+            }
+        } else if authService.currentUser == nil {
             LoginView()
                 .environmentObject(authService)
         } else {

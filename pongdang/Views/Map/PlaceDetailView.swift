@@ -162,6 +162,7 @@ struct PlaceDetailView: View {
                                     Button("삭제", role: .destructive) {
                                         recordToDelete = record
                                     }
+                                    .tint(.red)
 
                                     Button("수정") {
                                         recordToEdit = record
