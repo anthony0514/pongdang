@@ -1,0 +1,494 @@
+import SwiftUI
+import MapKit
+import CoreLocation
+
+struct MapView: View {
+    @EnvironmentObject var spaceService: SpaceService
+    @EnvironmentObject var authService: AuthService
+
+    @StateObject private var viewModel = MapViewModel()
+    @State private var selectedPlace: Place? = nil
+    @State private var showingPlaceDetail = false
+    @State private var showingAddPlace = false
+    @State private var longPressCoordinate: CLLocationCoordinate2D? = nil
+    @State private var longPressAddress: String? = nil
+    @State private var longPressName: String? = nil
+    @State private var isResolvingAddress = false
+    @State private var showingSpaceSheet = false
+    @State private var searchText = ""
+    @State private var isSearching = false
+    @FocusState private var isSearchFieldFocused: Bool
+    @State private var cameraPosition: MapCameraPosition = .region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780),
+            span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+        )
+    )
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            MapReader { proxy in
+                Map(position: $cameraPosition) {
+                    if let userLocation = viewModel.userLocation {
+                        Annotation("내 위치", coordinate: userLocation) {
+                            UserLocationAnnotationView()
+                        }
+                    }
+
+                    ForEach(viewModel.sharedHomeUsers, id: \.id) { user in
+                        if let coordinate = user.homeCoordinate {
+                            Annotation("\(user.name)의 집", coordinate: coordinate) {
+                                HomeAnnotationView(userName: user.name)
+                            }
+                        }
+                    }
+
+                    ForEach(viewModel.places) { place in
+                        Annotation(place.name, coordinate: place.coordinate) {
+                            PlaceAnnotationView(place: place)
+                                .onTapGesture {
+                                    selectedPlace = place
+                                }
+                        }
+                    }
+                }
+                .onTapGesture {
+                    selectedPlace = nil
+                    isSearchFieldFocused = false
+                }
+                .mapControls {
+                    MapCompass()
+                    MapScaleView()
+                }
+                .simultaneousGesture(longPressGesture(using: proxy))
+            }
+
+            VStack {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Button {
+                            showingSpaceSheet = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.3.fill")
+                                    .font(.caption)
+
+                                Text(spaceService.activeSpace?.name ?? "스페이스 선택")
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+
+                                Image(systemName: "chevron.down")
+                                    .font(.caption2.weight(.bold))
+                            }
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(glassCapsule)
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+                    }
+
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+
+                        TextField("장소 검색", text: $searchText)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($isSearchFieldFocused)
+                            .onSubmit {
+                                performSearch()
+                            }
+
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                                viewModel.searchResults = []
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(glassRoundedRect)
+
+                    if !viewModel.searchResults.isEmpty {
+                        VStack(spacing: 0) {
+                            ForEach(viewModel.searchResults) { result in
+                                Button {
+                                    applySearchResult(result)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(result.name)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        Text(result.address)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+
+                                if result.id != viewModel.searchResults.last?.id {
+                                    Divider()
+                                        .overlay(Color.white.opacity(0.16))
+                                }
+                            }
+                        }
+                        .background(glassRoundedRect)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .zIndex(2)
+
+            if let selectedPlace {
+                PlacePreviewCard(place: selectedPlace)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 20)
+                    .onTapGesture {
+                        showingPlaceDetail = true
+                    }
+            }
+
+            VStack(spacing: 12) {
+                Button {
+                    longPressCoordinate = nil
+                    longPressAddress = nil
+                    longPressName = nil
+                    showingAddPlace = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 48, height: 48)
+                        .background(glassCircle)
+                }
+
+                Button {
+                    viewModel.moveToUserLocation()
+                } label: {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44)
+                        .background(glassCircle)
+                }
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, selectedPlace == nil ? 20 : 156)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .zIndex(1)
+        }
+        .sheet(isPresented: $showingPlaceDetail) {
+            PlaceDetailView(place: selectedPlace!)
+                .environmentObject(spaceService)
+                .environmentObject(authService)
+        }
+        .sheet(isPresented: $showingAddPlace) {
+            AddPlaceView(initialCoordinate: longPressCoordinate, initialAddress: longPressAddress, initialName: longPressName)
+                .environmentObject(spaceService)
+                .environmentObject(authService)
+        }
+        .sheet(isPresented: $showingSpaceSheet) {
+            NavigationStack {
+                SpaceListView()
+                    .environmentObject(spaceService)
+                    .environmentObject(authService)
+            }
+        }
+        .onAppear {
+            if let space = spaceService.activeSpace {
+                viewModel.fetchPlaces(for: space.id)
+                Task {
+                    await viewModel.fetchSharedHomeUsers(for: space)
+                }
+            }
+        }
+        .onChange(of: spaceService.activeSpace) { _, space in
+            if let space {
+                viewModel.fetchPlaces(for: space.id)
+                Task {
+                    await viewModel.fetchSharedHomeUsers(for: space)
+                }
+            } else {
+                selectedPlace = nil
+                viewModel.sharedHomeUsers = []
+            }
+        }
+        .onChange(of: viewModel.places) { _, places in
+            guard let selectedPlace else { return }
+
+            if let updatedPlace = places.first(where: { $0.id == selectedPlace.id }) {
+                self.selectedPlace = updatedPlace
+            } else {
+                self.selectedPlace = nil
+                showingPlaceDetail = false
+            }
+        }
+        .onReceive(viewModel.$region) { region in
+            cameraPosition = .region(region)
+        }
+        .onChange(of: searchText) { _, newValue in
+            guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                viewModel.searchResults = []
+                return
+            }
+
+            guard !isSearching else { return }
+            performSearch()
+        }
+        .overlay {
+            if isResolvingAddress {
+                ZStack {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                    ProgressView("주소 불러오는 중...")
+                        .padding(20)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+        }
+        .tint(DesignSystem.Colors.primary)
+    }
+
+    private func performSearch() {
+        Task {
+            isSearching = true
+            await viewModel.searchPlaces(
+                query: searchText,
+                region: cameraRegion
+            )
+            isSearching = false
+        }
+    }
+
+    private func applySearchResult(_ result: MapViewModel.SearchResult) {
+        searchText = result.name
+        viewModel.searchResults = []
+        selectedPlace = nil
+        isSearchFieldFocused = false
+        longPressCoordinate = result.coordinate
+        longPressAddress = result.address
+        longPressName = result.name
+        viewModel.focus(on: result.coordinate)
+        showingAddPlace = true
+    }
+
+    private func longPressGesture(using proxy: MapProxy) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.5)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+            .onEnded { value in
+                guard case .second(true, let drag?) = value,
+                      let coordinate = proxy.convert(drag.location, from: .local) else {
+                    return
+                }
+
+                Task {
+                    selectedPlace = nil
+                    isSearchFieldFocused = false
+                    longPressCoordinate = coordinate
+                    longPressName = nil
+                    isResolvingAddress = true
+                    longPressAddress = await viewModel.reverseGeocode(coordinate: coordinate)
+                    isResolvingAddress = false
+                    showingAddPlace = true
+                }
+            }
+    }
+
+    private var cameraRegion: MKCoordinateRegion? {
+        viewModel.region
+    }
+
+    private var glassCircle: some View {
+        ZStack {
+            Circle()
+                .fill(.ultraThinMaterial)
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DesignSystem.Colors.cardHighlight,
+                            Color.white.opacity(0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Circle()
+                .stroke(Color.white.opacity(0.28), lineWidth: 1)
+        }
+        .shadow(color: DesignSystem.Colors.cardShadow, radius: 14, y: 8)
+    }
+
+    private var glassCapsule: some View {
+        ZStack {
+            Capsule()
+                .fill(.ultraThinMaterial)
+
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DesignSystem.Colors.cardHighlight,
+                            Color.white.opacity(0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Capsule()
+                .stroke(Color.white.opacity(0.28), lineWidth: 1)
+        }
+        .shadow(color: DesignSystem.Colors.cardShadow, radius: 16, y: 9)
+    }
+
+    private var glassRoundedRect: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(.ultraThinMaterial)
+
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DesignSystem.Colors.cardHighlight,
+                            Color.white.opacity(0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.24), lineWidth: 1)
+        }
+        .shadow(color: DesignSystem.Colors.cardShadow, radius: 16, y: 9)
+    }
+}
+
+private struct PlaceAnnotationView: View {
+    let place: Place
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(place.isVisited ? Color.green : Color.pink)
+                .frame(width: 22, height: 22)
+
+            Image(systemName: place.isVisited ? "checkmark" : "mappin")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .overlay(
+            Circle()
+                .stroke(Color.white.opacity(0.45), lineWidth: 0.8)
+        )
+        .shadow(color: .black.opacity(0.14), radius: 4, y: 2)
+    }
+}
+
+private struct UserLocationAnnotationView: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.blue.opacity(0.25))
+                .frame(width: 24, height: 24)
+
+            Circle()
+                .fill(Color.blue)
+                .frame(width: 12, height: 12)
+        }
+    }
+}
+
+private struct HomeAnnotationView: View {
+    let userName: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: "house.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Color.orange))
+
+            Text(userName)
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.24), lineWidth: 0.8)
+                        )
+                )
+        }
+    }
+}
+
+struct PlacePreviewCard: View {
+    let place: Place
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(place.name)
+                .font(.headline)
+                .fontWeight(.bold)
+
+            Text(place.category.rawValue)
+                .font(.subheadline)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+
+            Text(place.isVisited ? "방문 완료" : "미방문")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(place.isVisited ? DesignSystem.Colors.visited : DesignSystem.Colors.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background((place.isVisited ? DesignSystem.Colors.visited : DesignSystem.Colors.primary).opacity(0.14))
+                .clipShape(Capsule())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .pondangGlassCard(cornerRadius: 22)
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                .blur(radius: 0.4)
+        )
+    }
+}
+
+private extension Place {
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+private extension AppUser {
+    var homeCoordinate: CLLocationCoordinate2D? {
+        guard let homeLatitude, let homeLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: homeLatitude, longitude: homeLongitude)
+    }
+}

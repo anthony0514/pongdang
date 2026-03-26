@@ -1,0 +1,677 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		D4642D3F2F73BFED00952C30 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D3E2F73BFED00952C30 /* FirebaseAuth */; };
+		D4642D412F73BFED00952C30 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D402F73BFED00952C30 /* FirebaseFirestore */; };
+		D4642D432F73BFED00952C30 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D422F73BFED00952C30 /* FirebaseMessaging */; };
+		D4642D452F73BFED00952C30 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D442F73BFED00952C30 /* FirebaseStorage */; };
+		D4642D4A2F73C3D100952C30 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D492F73C3D100952C30 /* GoogleSignIn */; };
+		D4642D4C2F73C3D100952C30 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D4B2F73C3D100952C30 /* GoogleSignInSwift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D4642CEB2F73B99100952C30 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4642CD52F73B98A00952C30 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4642CDC2F73B98A00952C30;
+			remoteInfo = pongdang;
+		};
+		D4642CF52F73B99100952C30 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4642CD52F73B98A00952C30 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4642CDC2F73B98A00952C30;
+			remoteInfo = pongdang;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		D4642CDD2F73B98A00952C30 /* pongdang.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = pongdang.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4642CEA2F73B99100952C30 /* pongdangTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pongdangTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4642CF42F73B99100952C30 /* pongdangUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pongdangUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D4642D3A2F73BEE500952C30 /* Exceptions for "pongdang" folder in "pongdang" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D4642CDC2F73B98A00952C30 /* pongdang */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		D4642CDF2F73B98A00952C30 /* pongdang */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D4642D3A2F73BEE500952C30 /* Exceptions for "pongdang" folder in "pongdang" target */,
+			);
+			path = pongdang;
+			sourceTree = "<group>";
+		};
+		D4642CED2F73B99100952C30 /* pongdangTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = pongdangTests;
+			sourceTree = "<group>";
+		};
+		D4642CF72F73B99100952C30 /* pongdangUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = pongdangUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D4642CDA2F73B98A00952C30 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D4642D4A2F73C3D100952C30 /* GoogleSignIn in Frameworks */,
+				D4642D432F73BFED00952C30 /* FirebaseMessaging in Frameworks */,
+				D4642D452F73BFED00952C30 /* FirebaseStorage in Frameworks */,
+				D4642D4C2F73C3D100952C30 /* GoogleSignInSwift in Frameworks */,
+				D4642D3F2F73BFED00952C30 /* FirebaseAuth in Frameworks */,
+				D4642D412F73BFED00952C30 /* FirebaseFirestore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4642CE72F73B99100952C30 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4642CF12F73B99100952C30 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D4642CD42F73B98A00952C30 = {
+			isa = PBXGroup;
+			children = (
+				D4642CDF2F73B98A00952C30 /* pongdang */,
+				D4642CED2F73B99100952C30 /* pongdangTests */,
+				D4642CF72F73B99100952C30 /* pongdangUITests */,
+				D4642CDE2F73B98A00952C30 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D4642CDE2F73B98A00952C30 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D4642CDD2F73B98A00952C30 /* pongdang.app */,
+				D4642CEA2F73B99100952C30 /* pongdangTests.xctest */,
+				D4642CF42F73B99100952C30 /* pongdangUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D4642CDC2F73B98A00952C30 /* pongdang */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D4642CFE2F73B99100952C30 /* Build configuration list for PBXNativeTarget "pongdang" */;
+			buildPhases = (
+				D4642CD92F73B98A00952C30 /* Sources */,
+				D4642CDA2F73B98A00952C30 /* Frameworks */,
+				D4642CDB2F73B98A00952C30 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D4642CDF2F73B98A00952C30 /* pongdang */,
+			);
+			name = pongdang;
+			packageProductDependencies = (
+				D4642D3E2F73BFED00952C30 /* FirebaseAuth */,
+				D4642D402F73BFED00952C30 /* FirebaseFirestore */,
+				D4642D422F73BFED00952C30 /* FirebaseMessaging */,
+				D4642D442F73BFED00952C30 /* FirebaseStorage */,
+				D4642D492F73C3D100952C30 /* GoogleSignIn */,
+				D4642D4B2F73C3D100952C30 /* GoogleSignInSwift */,
+			);
+			productName = pongdang;
+			productReference = D4642CDD2F73B98A00952C30 /* pongdang.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D4642CE92F73B99100952C30 /* pongdangTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D4642D012F73B99100952C30 /* Build configuration list for PBXNativeTarget "pongdangTests" */;
+			buildPhases = (
+				D4642CE62F73B99100952C30 /* Sources */,
+				D4642CE72F73B99100952C30 /* Frameworks */,
+				D4642CE82F73B99100952C30 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D4642CEC2F73B99100952C30 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D4642CED2F73B99100952C30 /* pongdangTests */,
+			);
+			name = pongdangTests;
+			packageProductDependencies = (
+			);
+			productName = pongdangTests;
+			productReference = D4642CEA2F73B99100952C30 /* pongdangTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		D4642CF32F73B99100952C30 /* pongdangUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D4642D042F73B99100952C30 /* Build configuration list for PBXNativeTarget "pongdangUITests" */;
+			buildPhases = (
+				D4642CF02F73B99100952C30 /* Sources */,
+				D4642CF12F73B99100952C30 /* Frameworks */,
+				D4642CF22F73B99100952C30 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D4642CF62F73B99100952C30 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D4642CF72F73B99100952C30 /* pongdangUITests */,
+			);
+			name = pongdangUITests;
+			packageProductDependencies = (
+			);
+			productName = pongdangUITests;
+			productReference = D4642CF42F73B99100952C30 /* pongdangUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D4642CD52F73B98A00952C30 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2630;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					D4642CDC2F73B98A00952C30 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					D4642CE92F73B99100952C30 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = D4642CDC2F73B98A00952C30;
+					};
+					D4642CF32F73B99100952C30 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = D4642CDC2F73B98A00952C30;
+					};
+				};
+			};
+			buildConfigurationList = D4642CD82F73B98A00952C30 /* Build configuration list for PBXProject "pongdang" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = D4642CD42F73B98A00952C30;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D4642D3D2F73BFED00952C30 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				D4642D482F73C3D100952C30 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D4642CDE2F73B98A00952C30 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D4642CDC2F73B98A00952C30 /* pongdang */,
+				D4642CE92F73B99100952C30 /* pongdangTests */,
+				D4642CF32F73B99100952C30 /* pongdangUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D4642CDB2F73B98A00952C30 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4642CE82F73B99100952C30 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4642CF22F73B99100952C30 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D4642CD92F73B98A00952C30 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4642CE62F73B99100952C30 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4642CF02F73B99100952C30 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D4642CEC2F73B99100952C30 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D4642CDC2F73B98A00952C30 /* pongdang */;
+			targetProxy = D4642CEB2F73B99100952C30 /* PBXContainerItemProxy */;
+		};
+		D4642CF62F73B99100952C30 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D4642CDC2F73B98A00952C30 /* pongdang */;
+			targetProxy = D4642CF52F73B99100952C30 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		D4642CFC2F73B99100952C30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		D4642CFD2F73B99100952C30 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		D4642CFF2F73B99100952C30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = pongdang/pongdang.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = pongdang/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D4642D002F73B99100952C30 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = pongdang/pongdang.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = pongdang/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D4642D022F73B99100952C30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdangTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pongdang.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/pongdang";
+			};
+			name = Debug;
+		};
+		D4642D032F73B99100952C30 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdangTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pongdang.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/pongdang";
+			};
+			name = Release;
+		};
+		D4642D052F73B99100952C30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdangUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = pongdang;
+			};
+			name = Debug;
+		};
+		D4642D062F73B99100952C30 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdangUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = pongdang;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D4642CD82F73B98A00952C30 /* Build configuration list for PBXProject "pongdang" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4642CFC2F73B99100952C30 /* Debug */,
+				D4642CFD2F73B99100952C30 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D4642CFE2F73B99100952C30 /* Build configuration list for PBXNativeTarget "pongdang" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4642CFF2F73B99100952C30 /* Debug */,
+				D4642D002F73B99100952C30 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D4642D012F73B99100952C30 /* Build configuration list for PBXNativeTarget "pongdangTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4642D022F73B99100952C30 /* Debug */,
+				D4642D032F73B99100952C30 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D4642D042F73B99100952C30 /* Build configuration list for PBXNativeTarget "pongdangUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4642D052F73B99100952C30 /* Debug */,
+				D4642D062F73B99100952C30 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D4642D3D2F73BFED00952C30 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.11.0;
+			};
+		};
+		D4642D482F73C3D100952C30 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D4642D3E2F73BFED00952C30 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D4642D3D2F73BFED00952C30 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		D4642D402F73BFED00952C30 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D4642D3D2F73BFED00952C30 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		D4642D422F73BFED00952C30 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D4642D3D2F73BFED00952C30 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		D4642D442F73BFED00952C30 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D4642D3D2F73BFED00952C30 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		D4642D492F73C3D100952C30 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D4642D482F73C3D100952C30 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		D4642D4B2F73C3D100952C30 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D4642D482F73C3D100952C30 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = D4642CD52F73B98A00952C30 /* Project object */;
+}
