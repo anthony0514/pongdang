@@ -36,30 +36,22 @@ struct ManageSpaceView: View {
                 }
 
                 Section("기본 정보") {
-                    VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
                         TextField("스페이스 이름", text: $spaceName)
                             .onChange(of: spaceName) { _, _ in
                                 didSaveName = false
                             }
 
-                        HStack {
-                            Text(hasPendingNameChange ? "이름이 변경되었습니다." : "현재 이름이 저장된 상태입니다.")
-                                .font(.caption)
-                                .foregroundStyle(hasPendingNameChange ? .secondary : Color.green)
-
-                            Spacer()
-
-                            Button {
-                                saveSpaceName()
-                            } label: {
-                                Text(saveButtonTitle)
-                                    .font(.subheadline.weight(.semibold))
-                                    .frame(minWidth: 84)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(saveButtonTint)
-                            .disabled(!hasPendingNameChange || isSavingName)
+                        Button {
+                            saveSpaceName()
+                        } label: {
+                            Text(saveButtonTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minWidth: 84)
                         }
+                        .buttonStyle(.borderedProminent)
+                        .tint(saveButtonTint)
+                        .disabled(!hasPendingNameChange || isSavingName)
                     }
 
                     Button(isActiveSpace ? "현재 선택된 스페이스" : "현재 스페이스로 선택") {
@@ -173,7 +165,7 @@ struct ManageSpaceView: View {
             return "저장됨"
         }
 
-        return "이름 저장"
+        return "저장"
     }
 
     private var saveButtonTint: Color {

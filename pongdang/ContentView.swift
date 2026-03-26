@@ -46,13 +46,6 @@ private struct MainTabView: View {
                 .tabItem {
                     Label("캘린더", systemImage: "calendar")
                 }
-
-            SettingsView()
-                .environmentObject(spaceService)
-                .environmentObject(authService)
-            .tabItem {
-                Label("설정", systemImage: "person.circle")
-            }
         }
         .tint(DesignSystem.Colors.primary)
     }

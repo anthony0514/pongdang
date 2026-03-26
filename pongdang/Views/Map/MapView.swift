@@ -3,18 +3,36 @@ import MapKit
 import CoreLocation
 
 struct MapView: View {
+    private enum ExternalMapApp: String {
+        case kakao
+        case naver
+
+        var title: String {
+            switch self {
+            case .kakao:
+                return "카카오맵"
+            case .naver:
+                return "네이버지도"
+            }
+        }
+    }
+
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
+    @Environment(\.openURL) private var openURL
+    @AppStorage("preferredExternalMapApp") private var preferredExternalMapAppRawValue = ExternalMapApp.kakao.rawValue
 
     @StateObject private var viewModel = MapViewModel()
     @State private var selectedPlace: Place? = nil
     @State private var showingPlaceDetail = false
+    @State private var showingVisitRecordForm = false
     @State private var showingAddPlace = false
     @State private var longPressCoordinate: CLLocationCoordinate2D? = nil
     @State private var longPressAddress: String? = nil
     @State private var longPressName: String? = nil
     @State private var isResolvingAddress = false
     @State private var showingSpaceSheet = false
+    @State private var showingSettings = false
     @State private var searchText = ""
     @State private var isSearching = false
     @FocusState private var isSearchFieldFocused: Bool
@@ -47,13 +65,17 @@ struct MapView: View {
                         Annotation(place.name, coordinate: place.coordinate) {
                             PlaceAnnotationView(place: place)
                                 .onTapGesture {
-                                    selectedPlace = place
+                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                        selectedPlace = place
+                                    }
                                 }
                         }
                     }
                 }
                 .onTapGesture {
-                    selectedPlace = nil
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        selectedPlace = nil
+                    }
                     isSearchFieldFocused = false
                 }
                 .mapControls {
@@ -88,6 +110,17 @@ struct MapView: View {
                         .buttonStyle(.plain)
 
                         Spacer()
+
+                        Button {
+                            showingSettings = true
+                        } label: {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 44, height: 44)
+                                .background(glassCircle)
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     HStack(spacing: 10) {
@@ -157,9 +190,18 @@ struct MapView: View {
             .zIndex(2)
 
             if let selectedPlace {
-                PlacePreviewCard(place: selectedPlace)
+                PlacePreviewCard(
+                    place: selectedPlace,
+                    onWriteVisitRecord: {
+                        showingVisitRecordForm = true
+                    },
+                    onOpenMapApp: {
+                        openInPreferredMapApp(for: selectedPlace)
+                    }
+                )
                     .padding(.horizontal, 16)
                     .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                     .onTapGesture {
                         showingPlaceDetail = true
                     }
@@ -190,14 +232,24 @@ struct MapView: View {
                 }
             }
             .padding(.trailing, 16)
-            .padding(.bottom, selectedPlace == nil ? 20 : 156)
+            .padding(.bottom, 20)
+            .offset(y: selectedPlace == nil ? 0 : -96)
+            .animation(.spring(response: 0.32, dampingFraction: 0.86), value: selectedPlace != nil)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .zIndex(1)
         }
         .sheet(isPresented: $showingPlaceDetail) {
-            PlaceDetailView(place: selectedPlace!)
-                .environmentObject(spaceService)
-                .environmentObject(authService)
+            if let selectedPlace {
+                PlaceDetailView(place: selectedPlace)
+                    .environmentObject(spaceService)
+                    .environmentObject(authService)
+            }
+        }
+        .sheet(isPresented: $showingVisitRecordForm) {
+            if let selectedPlace {
+                VisitRecordFormView(place: selectedPlace, existingRecord: nil)
+                    .environmentObject(authService)
+            }
         }
         .sheet(isPresented: $showingAddPlace) {
             AddPlaceView(initialCoordinate: longPressCoordinate, initialAddress: longPressAddress, initialName: longPressName)
@@ -207,6 +259,13 @@ struct MapView: View {
         .sheet(isPresented: $showingSpaceSheet) {
             NavigationStack {
                 SpaceListView()
+                    .environmentObject(spaceService)
+                    .environmentObject(authService)
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                SettingsView()
                     .environmentObject(spaceService)
                     .environmentObject(authService)
             }
@@ -226,7 +285,9 @@ struct MapView: View {
                     await viewModel.fetchSharedHomeUsers(for: space)
                 }
             } else {
-                selectedPlace = nil
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    selectedPlace = nil
+                }
                 viewModel.sharedHomeUsers = []
             }
         }
@@ -236,8 +297,11 @@ struct MapView: View {
             if let updatedPlace = places.first(where: { $0.id == selectedPlace.id }) {
                 self.selectedPlace = updatedPlace
             } else {
-                self.selectedPlace = nil
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    self.selectedPlace = nil
+                }
                 showingPlaceDetail = false
+                showingVisitRecordForm = false
             }
         }
         .onReceive(viewModel.$region) { region in
@@ -313,6 +377,34 @@ struct MapView: View {
 
     private var cameraRegion: MKCoordinateRegion? {
         viewModel.region
+    }
+
+    private var preferredExternalMapApp: ExternalMapApp {
+        ExternalMapApp(rawValue: preferredExternalMapAppRawValue) ?? .kakao
+    }
+
+    private func openInPreferredMapApp(for place: Place) {
+        switch preferredExternalMapApp {
+        case .kakao:
+            openInKakaoMap(for: place)
+        case .naver:
+            openInNaverMap(for: place)
+        }
+    }
+
+    private func openInKakaoMap(for place: Place) {
+        guard let url = URL(string: "kakaomap://look?p=\(place.latitude),\(place.longitude)") else {
+            return
+        }
+        openURL(url)
+    }
+
+    private func openInNaverMap(for place: Place) {
+        let encodedName = place.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "목적지"
+        guard let url = URL(string: "nmap://place?lat=\(place.latitude)&lng=\(place.longitude)&name=\(encodedName)&appname=anthony.pongdang") else {
+            return
+        }
+        openURL(url)
     }
 
     private var glassCircle: some View {
@@ -449,27 +541,80 @@ private struct HomeAnnotationView: View {
 
 struct PlacePreviewCard: View {
     let place: Place
+    let onWriteVisitRecord: () -> Void
+    let onOpenMapApp: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(place.name)
-                .font(.headline)
-                .fontWeight(.bold)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(place.name)
+                    .font(.headline)
+                    .fontWeight(.bold)
 
-            Text(place.category.rawValue)
-                .font(.subheadline)
-                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                HStack(spacing: 8) {
+                    Text(place.category.rawValue)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color(.secondarySystemBackground))
+                        .clipShape(Capsule())
 
-            Text(place.isVisited ? "방문 완료" : "미방문")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(place.isVisited ? DesignSystem.Colors.visited : DesignSystem.Colors.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background((place.isVisited ? DesignSystem.Colors.visited : DesignSystem.Colors.primary).opacity(0.14))
-                .clipShape(Capsule())
+                    Text(place.isVisited ? "방문 완료" : "미방문")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(visitStatusColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(visitStatusBackground)
+                        .clipShape(Capsule())
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if place.isVisited {
+                Button(action: onOpenMapApp) {
+                    Image(systemName: "link")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 56, height: 56)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("외부 지도 앱에서 열기")
+            } else {
+                HStack(spacing: 8) {
+                    Button(action: onOpenMapApp) {
+                        Image(systemName: "link")
+                        .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 42, height: 42)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(.secondarySystemBackground))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("외부 지도 앱에서 열기")
+
+                    Button(action: onWriteVisitRecord) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 42, height: 42)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.accentColor)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("방문 기록 작성")
+                }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .pondangGlassCard(cornerRadius: 22)
         .overlay(
@@ -477,6 +622,15 @@ struct PlacePreviewCard: View {
                 .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
                 .blur(radius: 0.4)
         )
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var visitStatusColor: Color {
+        place.isVisited ? .green : .gray
+    }
+
+    private var visitStatusBackground: Color {
+        (place.isVisited ? Color.green : Color.gray).opacity(0.14)
     }
 }
 

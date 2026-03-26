@@ -21,8 +21,14 @@ struct InviteView: View {
 
     var body: some View {
         Form {
-            Section("초대 코드 생성") {
-                Button("초대 코드 생성") {
+            Color.clear
+                .frame(height: 12)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+            Section("초대하기") {
+                Button("코드 생성") {
                     Task {
                         do {
                             inviteCode = try await spaceService.generateInviteCode(
@@ -60,12 +66,12 @@ struct InviteView: View {
                 }
             }
 
-            Section("코드로 참여하기") {
+            Section("참여하기") {
                 TextField("6자리 코드 입력", text: $joinCode)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
 
-                Button("참여") {
+                Button("검색") {
                     Task {
                         do {
                             try await spaceService.joinSpace(

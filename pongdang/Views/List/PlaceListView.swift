@@ -1,10 +1,17 @@
 import SwiftUI
-import FirebaseFirestore
 
 struct PlaceListView: View {
-    private enum ListSection: String, CaseIterable, Identifiable {
-        case bucket = "버킷리스트"
-        case history = "히스토리"
+    private enum StatusFilter: String, CaseIterable, Identifiable {
+        case all = "모두"
+        case visited = "방문 완료"
+        case unvisited = "미방문"
+
+        var id: String { rawValue }
+    }
+
+    private enum SortOption: String, CaseIterable, Identifiable {
+        case newest = "최신 순"
+        case oldest = "오래된 순"
 
         var id: String { rawValue }
     }
@@ -14,15 +21,11 @@ struct PlaceListView: View {
 
     @StateObject private var viewModel = MapViewModel()
     @StateObject private var placeService = PlaceService()
-    @StateObject private var visitRecordService = VisitRecordService()
 
-    @State private var selectedSection: ListSection = .bucket
+    @State private var selectedStatusFilter: StatusFilter = .all
+    @State private var selectedSortOption: SortOption = .newest
     @State private var placeToEdit: Place?
     @State private var placeToDelete: Place?
-    @State private var visitRecords: [VisitRecord] = []
-    @State private var recordToEdit: VisitRecord?
-    @State private var recordToDelete: VisitRecord?
-    @State private var visitRecordListener: ListenerRegistration?
 
     var body: some View {
         NavigationStack {
@@ -33,16 +36,20 @@ struct PlaceListView: View {
                         systemImage: "person.3",
                         description: Text("먼저 스페이스를 만들거나 참여해 주세요.")
                     )
-                } else if isCurrentSectionEmpty {
-                    ContentUnavailableView(
-                        selectedSection == .bucket ? "버킷리스트가 비어 있습니다" : "히스토리가 비어 있습니다",
-                        systemImage: "list.bullet.rectangle",
-                        description: Text(selectedSection == .bucket ? "지도에서 장소를 추가하면 여기에 표시됩니다." : "방문 기록을 남기면 여기에 표시됩니다.")
-                    )
                 } else {
                     List {
-                        if selectedSection == .bucket {
-                            ForEach(bucketPlaces) { place in
+                        filtersSection
+
+                        if filteredPlaces.isEmpty {
+                            ContentUnavailableView(
+                                "표시할 장소가 없습니다",
+                                systemImage: "list.bullet.rectangle",
+                                description: Text(emptyStateDescription)
+                            )
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                        } else {
+                            ForEach(filteredPlaces) { place in
                                 NavigationLink {
                                     PlaceDetailView(place: place)
                                         .environmentObject(spaceService)
@@ -54,37 +61,12 @@ struct PlaceListView: View {
                                     Button("삭제", role: .destructive) {
                                         placeToDelete = place
                                     }
+                                    .tint(.red)
 
                                     Button("수정") {
                                         placeToEdit = place
                                     }
-                                    .tint(.blue)
-                                }
-                            }
-                        } else {
-                            ForEach(visitRecords) { record in
-                                if let place = placeByID[record.placeID] {
-                                    NavigationLink {
-                                        PlaceDetailView(place: place)
-                                            .environmentObject(spaceService)
-                                            .environmentObject(authService)
-                                    } label: {
-                                        VisitRecordRow(record: record)
-                                    }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        if record.createdBy == authService.currentUser?.id {
-                                            Button("삭제", role: .destructive) {
-                                                recordToDelete = record
-                                            }
-
-                                            Button("수정") {
-                                                recordToEdit = record
-                                            }
-                                            .tint(.blue)
-                                        }
-                                    }
-                                } else {
-                                    VisitRecordRow(record: record)
+                                    .tint(Color(hex: "2F7FB8"))
                                 }
                             }
                         }
@@ -92,52 +74,24 @@ struct PlaceListView: View {
                     .listStyle(.plain)
                 }
             }
-            .navigationTitle(spaceService.activeSpace?.name ?? "리스트")
+            .navigationTitle("버킷리스트")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Picker("구분", selection: $selectedSection) {
-                        ForEach(ListSection.allCases) { section in
-                            Text(section.rawValue).tag(section)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
-                }
-            }
             .onAppear {
                 if let space = spaceService.activeSpace {
                     viewModel.fetchPlaces(for: space.id)
-                    listenForVisitRecords(spaceID: space.id)
                 }
             }
             .onChange(of: spaceService.activeSpace) { _, space in
                 if let space {
                     viewModel.fetchPlaces(for: space.id)
-                    listenForVisitRecords(spaceID: space.id)
                 } else {
                     viewModel.places = []
-                    visitRecordListener?.remove()
-                    visitRecordListener = nil
-                    visitRecords = []
                 }
-            }
-            .onDisappear {
-                visitRecordListener?.remove()
-                visitRecordListener = nil
             }
             .sheet(item: $placeToEdit) { place in
                 AddPlaceView(initialCoordinate: nil, placeToEdit: place)
                     .environmentObject(spaceService)
                     .environmentObject(authService)
-            }
-            .sheet(item: $recordToEdit) { record in
-                if let place = placeByID[record.placeID] {
-                    VisitRecordFormView(place: place, existingRecord: record)
-                        .environmentObject(authService)
-                } else {
-                    Text("해당 장소를 찾을 수 없습니다.")
-                }
             }
             .alert("장소를 삭제할까요?", isPresented: deleteAlertBinding, presenting: placeToDelete) { place in
                 Button("삭제", role: .destructive) {
@@ -149,18 +103,8 @@ struct PlaceListView: View {
             } message: { place in
                 Text("\"\(place.name)\"을(를) 삭제합니다.")
             }
-            .alert("방문 기록을 삭제할까요?", isPresented: deleteRecordAlertBinding, presenting: recordToDelete) { record in
-                Button("삭제", role: .destructive) {
-                    deleteRecord(record)
-                }
-                Button("취소", role: .cancel) {
-                    recordToDelete = nil
-                }
-            } message: { record in
-                Text("\"\(record.title)\" 기록을 삭제합니다.")
-            }
             .overlay {
-                if placeService.isLoading || visitRecordService.isLoading {
+                if placeService.isLoading {
                     ZStack {
                         Color.black.opacity(0.12)
                             .ignoresSafeArea()
@@ -173,22 +117,74 @@ struct PlaceListView: View {
         }
     }
 
-    private var bucketPlaces: [Place] {
-        viewModel.places
-            .filter { !$0.isVisited }
-            .sorted { $0.addedAt > $1.addedAt }
+    private var filtersSection: some View {
+        Section {
+            VStack(spacing: 12) {
+                Picker("보기 기준", selection: $selectedStatusFilter) {
+                    ForEach(StatusFilter.allCases) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack {
+                    Text("정렬 기준")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Menu {
+                        ForEach(SortOption.allCases) { option in
+                            Button {
+                                selectedSortOption = option
+                            } label: {
+                                if selectedSortOption == option {
+                                    Label(option.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(option.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(selectedSortOption.rawValue)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
     }
 
-    private var placeByID: [String: Place] {
-        Dictionary(uniqueKeysWithValues: viewModel.places.map { ($0.id, $0) })
+    private var filteredPlaces: [Place] {
+        let statusFiltered = viewModel.places.filter { place in
+            switch selectedStatusFilter {
+            case .all:
+                return true
+            case .visited:
+                return place.isVisited
+            case .unvisited:
+                return !place.isVisited
+            }
+        }
+
+        switch selectedSortOption {
+        case .newest:
+            return statusFiltered.sorted { $0.addedAt > $1.addedAt }
+        case .oldest:
+            return statusFiltered.sorted { $0.addedAt < $1.addedAt }
+        }
     }
 
-    private var isCurrentSectionEmpty: Bool {
-        switch selectedSection {
-        case .bucket:
-            return bucketPlaces.isEmpty
-        case .history:
-            return visitRecords.isEmpty
+    private var emptyStateDescription: String {
+        switch selectedStatusFilter {
+        case .all:
+            return "지도에서 장소를 추가하면 여기에 표시됩니다."
+        case .visited:
+            return "방문 완료한 장소가 아직 없습니다."
+        case .unvisited:
+            return "미방문 장소가 없습니다."
         }
     }
 
@@ -203,39 +199,11 @@ struct PlaceListView: View {
         )
     }
 
-    private var deleteRecordAlertBinding: Binding<Bool> {
-        Binding(
-            get: { recordToDelete != nil },
-            set: { newValue in
-                if !newValue {
-                    recordToDelete = nil
-                }
-            }
-        )
-    }
-
-    private func listenForVisitRecords(spaceID: String) {
-        visitRecordListener?.remove()
-        visitRecordListener = visitRecordService.listenForSpaceRecords(spaceID: spaceID) { records in
-            visitRecords = records
-        }
-    }
-
     private func deletePlace(_ place: Place) {
         Task {
             do {
                 try await placeService.deletePlace(id: place.id)
                 placeToDelete = nil
-            } catch {
-            }
-        }
-    }
-
-    private func deleteRecord(_ record: VisitRecord) {
-        Task {
-            do {
-                try await visitRecordService.deleteVisitRecord(record)
-                recordToDelete = nil
             } catch {
             }
         }

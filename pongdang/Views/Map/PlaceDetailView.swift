@@ -3,11 +3,26 @@ import CoreLocation
 import FirebaseFirestore
 
 struct PlaceDetailView: View {
+    private enum ExternalMapApp: String {
+        case kakao
+        case naver
+
+        var title: String {
+            switch self {
+            case .kakao:
+                return "카카오맵"
+            case .naver:
+                return "네이버지도"
+            }
+        }
+    }
+
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
     @StateObject private var placeService = PlaceService()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @AppStorage("preferredExternalMapApp") private var preferredExternalMapAppRawValue = ExternalMapApp.kakao.rawValue
 
     @State private var showingEdit = false
     @State private var showingDeleteAlert = false
@@ -24,96 +39,7 @@ struct PlaceDetailView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 8) {
-                        Text(place.category.rawValue)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(Capsule())
-
-                        Text(visitRecords.isEmpty ? "미방문" : "방문 완료")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(visitRecords.isEmpty ? .gray : .green)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background((visitRecords.isEmpty ? Color.gray : Color.green).opacity(0.14))
-                            .clipShape(Capsule())
-
-                        Spacer()
-                    }
-
-                    if !place.tags.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(place.tags, id: \.self) { tag in
-                                    Text(tag)
-                                        .font(.subheadline)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(Color(.secondarySystemBackground))
-                                        .clipShape(Capsule())
-                                }
-                            }
-                        }
-                    }
-
-                    if let memo = place.memo {
-                        Text(memo)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Divider()
-
-                    Text("추가: \(addedByName)")
-                        .font(.subheadline)
-                    Text(Self.dateFormatter.string(from: place.addedAt))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Button(visitRecords.isEmpty ? "방문 기록 작성" : "방문 추가 기록") {
-                        showingVisitRecordForm = true
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("지도 앱에서 열기") {
-                        openInKakaoMap()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("방문 기록")
-                            .font(.headline)
-
-                        if visitRecords.isEmpty {
-                            Text("아직 남겨진 방문 기록이 없습니다.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(visitRecords) { record in
-                                VisitRecordCard(
-                                    record: record,
-                                    isOwnedByCurrentUser: record.createdBy == authService.currentUser?.id,
-                                    onEdit: {
-                                        recordToEdit = record
-                                    },
-                                    onDelete: {
-                                        recordToDelete = record
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
-            }
+            detailContent
             .background(Color.clear)
             .navigationTitle(place.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -183,6 +109,129 @@ struct PlaceDetailView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Spacer()
+
+                    Button {
+                        showingVisitRecordForm = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 24, weight: .bold))
+                            .frame(width: 58, height: 58)
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("방문 기록 추가")
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+            }
+        }
+    }
+
+    private var detailContent: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 16) {
+                    headerSection
+                    tagSection
+                    memoSection
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
+                .listRowSeparator(.hidden)
+            }
+
+            Section {
+                if visitRecords.isEmpty {
+                    Text("아직 남겨진 방문 기록이 없습니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                } else {
+                    ForEach(visitRecords) { record in
+                        VisitRecordListRow(record: record)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.visible)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if record.createdBy == authService.currentUser?.id {
+                                    Button("삭제", role: .destructive) {
+                                        recordToDelete = record
+                                    }
+
+                                    Button("수정") {
+                                        recordToEdit = record
+                                    }
+                                    .tint(Color(hex: "2F7FB8"))
+                                }
+                            }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    private var headerSection: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(place.category.rawValue)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(Capsule())
+
+            Text(visitStatusText)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(visitStatusColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(visitStatusBackground)
+                .clipShape(Capsule())
+
+            Spacer()
+
+            Button(action: openInPreferredMapApp) {
+                Image(systemName: "link")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(preferredExternalMapApp.title)에서 열기")
+        }
+    }
+
+    @ViewBuilder
+    private var tagSection: some View {
+        if !place.tags.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(place.tags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.subheadline)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var memoSection: some View {
+        if let memo = place.memo, !memo.isEmpty {
+            Text(memo)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -246,8 +295,41 @@ struct PlaceDetailView: View {
         }
     }
 
+    private var preferredExternalMapApp: ExternalMapApp {
+        ExternalMapApp(rawValue: preferredExternalMapAppRawValue) ?? .kakao
+    }
+
+    private var visitStatusText: String {
+        visitRecords.isEmpty ? "미방문" : "방문 완료"
+    }
+
+    private var visitStatusColor: Color {
+        visitRecords.isEmpty ? .gray : .green
+    }
+
+    private var visitStatusBackground: Color {
+        visitStatusColor.opacity(0.14)
+    }
+
+    private func openInPreferredMapApp() {
+        switch preferredExternalMapApp {
+        case .kakao:
+            openInKakaoMap()
+        case .naver:
+            openInNaverMap()
+        }
+    }
+
     private func openInKakaoMap() {
         guard let url = URL(string: "kakaomap://look?p=\(place.latitude),\(place.longitude)") else {
+            return
+        }
+        openURL(url)
+    }
+
+    private func openInNaverMap() {
+        let encodedName = place.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "목적지"
+        guard let url = URL(string: "nmap://place?lat=\(place.latitude)&lng=\(place.longitude)&name=\(encodedName)&appname=anthony.pongdang") else {
             return
         }
         openURL(url)
@@ -260,25 +342,20 @@ struct PlaceDetailView: View {
     }()
 }
 
-private struct VisitRecordCard: View {
+private struct VisitRecordListRow: View {
     let record: VisitRecord
-    let isOwnedByCurrentUser: Bool
-    let onEdit: () -> Void
-    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(record.title)
-                        .font(.headline)
-
-                    Text(Self.dateFormatter.string(from: record.visitedAt))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(record.title)
+                    .font(.headline)
 
                 Spacer()
+
+                Text(Self.dateFormatter.string(from: record.visitedAt))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Text("\(record.rating)점")
                     .font(.caption)
@@ -294,18 +371,8 @@ private struct VisitRecordCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-
-            if isOwnedByCurrentUser {
-                HStack(spacing: 12) {
-                    Button("수정", action: onEdit)
-                    Button("삭제", role: .destructive, action: onDelete)
-                }
-                .font(.caption)
-                .buttonStyle(.borderless)
-            }
         }
-        .padding(16)
-        .pondangGlassCard(cornerRadius: 18)
+        .padding(.vertical, 4)
     }
 
     private static let dateFormatter: DateFormatter = {

@@ -26,6 +26,7 @@ final class MapViewModel: NSObject, ObservableObject {
     private var listener: ListenerRegistration?
     private let db = Firestore.firestore()
     private let locationManager = CLLocationManager()
+    private var hasCenteredOnUserLocation = false
 
     override init() {
         super.init()
@@ -258,6 +259,14 @@ extension MapViewModel: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let coordinate = locations.last?.coordinate else { return }
         userLocation = coordinate
+
+        if !hasCenteredOnUserLocation {
+            hasCenteredOnUserLocation = true
+            region = MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            )
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
