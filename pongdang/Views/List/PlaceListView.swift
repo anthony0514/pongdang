@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseFirestore
 
 struct PlaceListView: View {
     private enum StatusFilter: String, CaseIterable, Identifiable {
@@ -21,11 +22,15 @@ struct PlaceListView: View {
 
     @StateObject private var viewModel = MapViewModel()
     @StateObject private var placeService = PlaceService()
+    @StateObject private var visitRecordService = VisitRecordService()
 
     @State private var selectedStatusFilter: StatusFilter = .all
     @State private var selectedSortOption: SortOption = .newest
+    @State private var searchText = ""
     @State private var placeToEdit: Place?
     @State private var placeToDelete: Place?
+    @State private var visitRecords: [VisitRecord] = []
+    @State private var visitRecordListener: ListenerRegistration?
 
     var body: some View {
         NavigationStack {
@@ -38,6 +43,7 @@ struct PlaceListView: View {
                     )
                 } else {
                     List {
+                        searchSection
                         filtersSection
 
                         if filteredPlaces.isEmpty {
@@ -79,14 +85,23 @@ struct PlaceListView: View {
             .onAppear {
                 if let space = spaceService.activeSpace {
                     viewModel.fetchPlaces(for: space.id)
+                    listenForVisitRecords(spaceID: space.id)
                 }
             }
             .onChange(of: spaceService.activeSpace) { _, space in
                 if let space {
                     viewModel.fetchPlaces(for: space.id)
+                    listenForVisitRecords(spaceID: space.id)
                 } else {
                     viewModel.places = []
+                    visitRecords = []
+                    visitRecordListener?.remove()
+                    visitRecordListener = nil
                 }
+            }
+            .onDisappear {
+                visitRecordListener?.remove()
+                visitRecordListener = nil
             }
             .sheet(item: $placeToEdit) { place in
                 AddPlaceView(initialCoordinate: nil, placeToEdit: place)
@@ -114,6 +129,30 @@ struct PlaceListView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var searchSection: some View {
+        Section {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+
+                TextField("장소 검색", text: $searchText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
 
@@ -169,15 +208,49 @@ struct PlaceListView: View {
             }
         }
 
+        let normalizedQuery = searchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let searchFiltered: [Place]
+        if normalizedQuery.isEmpty {
+            searchFiltered = statusFiltered
+        } else {
+            searchFiltered = statusFiltered.filter { place in
+                let relatedVisitRecords = visitRecords.filter { $0.placeID == place.id }
+                let visitRecordText = relatedVisitRecords
+                    .flatMap { [$0.title, $0.body ?? ""] }
+                    .joined(separator: "\n")
+
+                let fields = [
+                    place.name,
+                    place.address,
+                    place.category.rawValue,
+                    place.memo ?? "",
+                    place.tags.joined(separator: " "),
+                    visitRecordText
+                ]
+
+                return fields
+                    .joined(separator: "\n")
+                    .lowercased()
+                    .contains(normalizedQuery)
+            }
+        }
+
         switch selectedSortOption {
         case .newest:
-            return statusFiltered.sorted { $0.addedAt > $1.addedAt }
+            return searchFiltered.sorted { $0.addedAt > $1.addedAt }
         case .oldest:
-            return statusFiltered.sorted { $0.addedAt < $1.addedAt }
+            return searchFiltered.sorted { $0.addedAt < $1.addedAt }
         }
     }
 
     private var emptyStateDescription: String {
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "검색 결과가 없습니다."
+        }
+
         switch selectedStatusFilter {
         case .all:
             return "지도에서 장소를 추가하면 여기에 표시됩니다."
@@ -206,6 +279,13 @@ struct PlaceListView: View {
                 placeToDelete = nil
             } catch {
             }
+        }
+    }
+
+    private func listenForVisitRecords(spaceID: String) {
+        visitRecordListener?.remove()
+        visitRecordListener = visitRecordService.listenForSpaceRecords(spaceID: spaceID) { records in
+            visitRecords = records
         }
     }
 }

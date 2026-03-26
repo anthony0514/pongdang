@@ -134,6 +134,18 @@ final class SpaceService: ObservableObject {
             throw Self.makeError("유효하지 않은 코드입니다")
         }
 
+        let spaceSnapshot = try await db.collection("spaces").document(spaceID).getDocument()
+        guard
+            spaceSnapshot.exists,
+            let memberIDs = spaceSnapshot.data()?["memberIDs"] as? [String]
+        else {
+            throw Self.makeError("참여할 스페이스를 찾을 수 없습니다")
+        }
+
+        guard !memberIDs.contains(userID) else {
+            throw Self.makeError("이미 참여 중인 스페이스입니다")
+        }
+
         try await db.collection("spaces").document(spaceID).updateData([
             "memberIDs": FieldValue.arrayUnion([userID])
         ])

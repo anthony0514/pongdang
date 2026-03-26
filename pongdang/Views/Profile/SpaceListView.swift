@@ -43,9 +43,11 @@ struct SpaceListView: View {
             }
         }
         .sheet(isPresented: $showingInvite) {
-            InviteView()
-                .environmentObject(spaceService)
-                .environmentObject(authService)
+            NavigationStack {
+                InviteView()
+                    .environmentObject(spaceService)
+                    .environmentObject(authService)
+            }
         }
         .sheet(isPresented: $showingCreate) {
             CreateSpaceView()
