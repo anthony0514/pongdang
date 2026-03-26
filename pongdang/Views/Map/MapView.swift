@@ -117,7 +117,7 @@ struct MapView: View {
                         Button {
                             showingSettings = true
                         } label: {
-                            Image(systemName: "person.crop.circle.fill")
+                            Image(systemName: "person.fill")
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(.primary)
                                 .frame(width: 44, height: 44)
