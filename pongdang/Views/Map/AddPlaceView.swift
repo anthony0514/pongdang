@@ -10,6 +10,7 @@ struct AddPlaceView: View {
     var initialCoordinate: CLLocationCoordinate2D?
     var initialAddress: String? = nil
     var initialName: String? = nil
+    var initialSourceURL: String? = nil
     var placeToEdit: Place? = nil
 
     @State private var name = ""
@@ -20,6 +21,7 @@ struct AddPlaceView: View {
     @State private var tagInput = ""
     @State private var tags: [String] = []
     @State private var memo = ""
+    @State private var sourceURL: String? = nil
 
     private var isEditing: Bool {
         placeToEdit != nil
@@ -101,6 +103,7 @@ struct AddPlaceView: View {
                     selectedCategory = placeToEdit.category
                     tags = placeToEdit.tags
                     memo = placeToEdit.memo ?? ""
+                    sourceURL = placeToEdit.sourceURL
                     return
                 }
 
@@ -115,6 +118,10 @@ struct AddPlaceView: View {
 
                 if let initialName, name.isEmpty {
                     name = initialName
+                }
+
+                if let initialSourceURL, !initialSourceURL.isEmpty {
+                    sourceURL = initialSourceURL
                 }
             }
             .overlay {
@@ -164,6 +171,7 @@ struct AddPlaceView: View {
             category: selectedCategory,
             tags: tags,
             memo: memo.isEmpty ? nil : memo,
+            sourceURL: sourceURL,
             addedBy: placeToEdit?.addedBy ?? userID,
             addedAt: placeToEdit?.addedAt ?? Date(),
             isVisited: placeToEdit?.isVisited ?? false

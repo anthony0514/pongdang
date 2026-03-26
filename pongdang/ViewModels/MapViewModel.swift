@@ -65,6 +65,7 @@ final class MapViewModel: NSObject, ObservableObject {
                             category: category,
                             tags: d["tags"] as? [String] ?? [],
                             memo: d["memo"] as? String,
+                            sourceURL: d["sourceURL"] as? String,
                             addedBy: addedBy,
                             addedAt: addedAtTS.dateValue(),
                             isVisited: isVisited
@@ -178,6 +179,23 @@ final class MapViewModel: NSObject, ObservableObject {
         }
     }
 
+    func resolveSharedLocation(name: String?, address: String?) async -> SearchResult? {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAddress = address?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let trimmedAddress, !trimmedAddress.isEmpty,
+           let result = await bestAddressMatch(for: trimmedAddress, preferredName: trimmedName) {
+            return result
+        }
+
+        if let trimmedName, !trimmedName.isEmpty,
+           let result = await firstSearchResult(for: trimmedName) {
+            return result
+        }
+
+        return nil
+    }
+
     func focus(on coordinate: CLLocationCoordinate2D) {
         region = MKCoordinateRegion(
             center: coordinate,
@@ -239,6 +257,84 @@ final class MapViewModel: NSObject, ObservableObject {
             }
             .prefix(limit)
             .map { $0 }
+    }
+
+    private func firstSearchResult(for query: String) async -> SearchResult? {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = normalizedQuery(for: query)
+        request.region = region
+        request.regionPriority = .required
+
+        if let filter = pointOfInterestFilter(for: query) {
+            request.resultTypes = [.pointOfInterest]
+            request.pointOfInterestFilter = filter
+        } else {
+            request.resultTypes = [.pointOfInterest, .address]
+        }
+
+        do {
+            let response = try await MKLocalSearch(request: request).start()
+            let mappedResults = response.mapItems.compactMap { item in
+                SearchResult(
+                    name: item.name ?? "장소",
+                    address: item.address?.fullAddress ?? item.address?.shortAddress ?? item.name ?? "",
+                    coordinate: item.location.coordinate
+                )
+            }
+
+            return rankedResults(mappedResults, for: query, limit: 1).first
+        } catch {
+            return nil
+        }
+    }
+
+    private func bestAddressMatch(for address: String, preferredName: String?) async -> SearchResult? {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = address
+        request.region = region
+        request.regionPriority = .required
+        request.resultTypes = [.address, .pointOfInterest]
+
+        do {
+            let response = try await MKLocalSearch(request: request).start()
+            let mappedResults = response.mapItems.compactMap { item in
+                SearchResult(
+                    name: item.name ?? "장소",
+                    address: item.address?.fullAddress ?? item.address?.shortAddress ?? item.name ?? "",
+                    coordinate: item.location.coordinate
+                )
+            }
+
+            let loweredAddress = address.lowercased()
+            let loweredName = preferredName?.lowercased()
+
+            return mappedResults
+                .sorted { lhs, rhs in
+                    let lhsAddress = lhs.address.lowercased()
+                    let rhsAddress = rhs.address.lowercased()
+                    let lhsName = lhs.name.lowercased()
+                    let rhsName = rhs.name.lowercased()
+
+                    let lhsAddressExact = lhsAddress == loweredAddress ? 0 : 1
+                    let rhsAddressExact = rhsAddress == loweredAddress ? 0 : 1
+                    if lhsAddressExact != rhsAddressExact { return lhsAddressExact < rhsAddressExact }
+
+                    let lhsAddressContains = lhsAddress.contains(loweredAddress) ? 0 : 1
+                    let rhsAddressContains = rhsAddress.contains(loweredAddress) ? 0 : 1
+                    if lhsAddressContains != rhsAddressContains { return lhsAddressContains < rhsAddressContains }
+
+                    if let loweredName {
+                        let lhsNameContains = (lhsName.contains(loweredName) || lhsAddress.contains(loweredName)) ? 0 : 1
+                        let rhsNameContains = (rhsName.contains(loweredName) || rhsAddress.contains(loweredName)) ? 0 : 1
+                        if lhsNameContains != rhsNameContains { return lhsNameContains < rhsNameContains }
+                    }
+
+                    return lhs.name < rhs.name
+                }
+                .first
+        } catch {
+            return nil
+        }
     }
 
     deinit {

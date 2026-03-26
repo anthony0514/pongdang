@@ -19,6 +19,7 @@ struct PlaceListView: View {
 
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var navigationState: AppNavigationState
 
     @StateObject private var viewModel = MapViewModel()
     @StateObject private var placeService = PlaceService()
@@ -61,8 +62,11 @@ struct PlaceListView: View {
                                         .environmentObject(spaceService)
                                         .environmentObject(authService)
                                 } label: {
-                                    PlaceListRow(place: place)
+                                    PlaceListRow(place: place) {
+                                        navigationState.showPlaceOnMap(placeID: place.id)
+                                    }
                                 }
+                                .buttonStyle(.plain)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button("삭제", role: .destructive) {
                                         placeToDelete = place
@@ -292,6 +296,7 @@ struct PlaceListView: View {
 
 private struct PlaceListRow: View {
     let place: Place
+    let onShowOnMap: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -317,6 +322,19 @@ private struct PlaceListRow: View {
                 .font(.caption)
                 .fontWeight(.semibold)
             }
+
+            Spacer(minLength: 12)
+
+            Button(action: onShowOnMap) {
+                Image(systemName: "mappin.and.ellipse")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 42, height: 42)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("지도에서 보기")
         }
         .padding(.vertical, 4)
     }

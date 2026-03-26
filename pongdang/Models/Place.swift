@@ -10,6 +10,7 @@ struct Place: Codable, Identifiable, Equatable {
     var category: PlaceCategory
     var tags: [String]
     var memo: String?
+    var sourceURL: String?
     var addedBy: String
     var addedAt: Date
     var isVisited: Bool

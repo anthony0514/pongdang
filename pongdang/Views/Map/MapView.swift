@@ -19,6 +19,8 @@ struct MapView: View {
 
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var pendingShareStore: PendingShareStore
+    @EnvironmentObject var navigationState: AppNavigationState
     @Environment(\.openURL) private var openURL
     @AppStorage("preferredExternalMapApp") private var preferredExternalMapAppRawValue = ExternalMapApp.kakao.rawValue
 
@@ -30,6 +32,7 @@ struct MapView: View {
     @State private var longPressCoordinate: CLLocationCoordinate2D? = nil
     @State private var longPressAddress: String? = nil
     @State private var longPressName: String? = nil
+    @State private var longPressSourceURL: String? = nil
     @State private var isResolvingAddress = false
     @State private var showingSpaceSheet = false
     @State private var showingSettings = false
@@ -212,6 +215,7 @@ struct MapView: View {
                     longPressCoordinate = nil
                     longPressAddress = nil
                     longPressName = nil
+                    longPressSourceURL = nil
                     showingAddPlace = true
                 } label: {
                     Image(systemName: "plus")
@@ -252,7 +256,12 @@ struct MapView: View {
             }
         }
         .sheet(isPresented: $showingAddPlace) {
-            AddPlaceView(initialCoordinate: longPressCoordinate, initialAddress: longPressAddress, initialName: longPressName)
+            AddPlaceView(
+                initialCoordinate: longPressCoordinate,
+                initialAddress: longPressAddress,
+                initialName: longPressName,
+                initialSourceURL: longPressSourceURL
+            )
                 .environmentObject(spaceService)
                 .environmentObject(authService)
         }
@@ -277,6 +286,12 @@ struct MapView: View {
                     await viewModel.fetchSharedHomeUsers(for: space)
                 }
             }
+            // Share Extension에서 앱을 열었을 때 pending 데이터 처리
+            applyPendingShareIfNeeded()
+        }
+        .onChange(of: pendingShareStore.pendingLocation) { _, location in
+            guard location != nil else { return }
+            applyPendingShareIfNeeded()
         }
         .onChange(of: spaceService.activeSpace) { _, space in
             if let space {
@@ -304,6 +319,16 @@ struct MapView: View {
                 showingVisitRecordForm = false
             }
         }
+        .onChange(of: navigationState.focusedPlaceID) { _, placeID in
+            guard let placeID,
+                  let place = viewModel.places.first(where: { $0.id == placeID }) else { return }
+
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                selectedPlace = place
+            }
+            viewModel.focus(on: place.coordinate)
+            navigationState.focusedPlaceID = nil
+        }
         .onReceive(viewModel.$region) { region in
             cameraPosition = .region(region)
         }
@@ -328,6 +353,47 @@ struct MapView: View {
             }
         }
         .tint(DesignSystem.Colors.primary)
+    }
+
+    private func applyPendingShareIfNeeded() {
+        guard let pending = pendingShareStore.pendingLocation else { return }
+        pendingShareStore.clearPending()
+
+        Task {
+            if let lat = pending.latitude, let lng = pending.longitude {
+                let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+                await MainActor.run {
+                    viewModel.focus(on: coordinate)
+                    longPressCoordinate = coordinate
+                    longPressAddress = pending.address
+                    longPressName = pending.name
+                    longPressSourceURL = pending.sourceURL
+                    showingAddPlace = true
+                }
+                return
+            }
+
+            let resolved = await viewModel.resolveSharedLocation(
+                name: pending.name,
+                address: pending.address
+            )
+
+            await MainActor.run {
+                if let resolved {
+                    viewModel.focus(on: resolved.coordinate)
+                    longPressCoordinate = resolved.coordinate
+                    longPressAddress = pending.address ?? resolved.address
+                    longPressName = pending.name ?? resolved.name
+                    longPressSourceURL = pending.sourceURL
+                } else {
+                    longPressCoordinate = nil
+                    longPressAddress = pending.address
+                    longPressName = pending.name
+                    longPressSourceURL = pending.sourceURL
+                }
+                showingAddPlace = true
+            }
+        }
     }
 
     private func performSearch() {
@@ -384,27 +450,10 @@ struct MapView: View {
     }
 
     private func openInPreferredMapApp(for place: Place) {
-        switch preferredExternalMapApp {
-        case .kakao:
-            openInKakaoMap(for: place)
-        case .naver:
-            openInNaverMap(for: place)
+        let preferredApp: PreferredMapApp = preferredExternalMapApp == .kakao ? .kakao : .naver
+        if let url = ExternalMapOpener.resolvedURL(for: place, preferredApp: preferredApp) {
+            openURL(url)
         }
-    }
-
-    private func openInKakaoMap(for place: Place) {
-        guard let url = URL(string: "kakaomap://look?p=\(place.latitude),\(place.longitude)") else {
-            return
-        }
-        openURL(url)
-    }
-
-    private func openInNaverMap(for place: Place) {
-        let encodedName = place.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "목적지"
-        guard let url = URL(string: "nmap://place?lat=\(place.latitude)&lng=\(place.longitude)&name=\(encodedName)&appname=anthony.pongdang") else {
-            return
-        }
-        openURL(url)
     }
 
     private var glassCircle: some View {
@@ -545,7 +594,7 @@ struct PlacePreviewCard: View {
     let onOpenMapApp: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(place.name)
                     .font(.headline)
@@ -586,7 +635,7 @@ struct PlacePreviewCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("외부 지도 앱에서 열기")
             } else {
-                HStack(spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
                     Button(action: onOpenMapApp) {
                         Image(systemName: "link")
                         .font(.system(size: 15, weight: .semibold))

@@ -313,27 +313,10 @@ struct PlaceDetailView: View {
     }
 
     private func openInPreferredMapApp() {
-        switch preferredExternalMapApp {
-        case .kakao:
-            openInKakaoMap()
-        case .naver:
-            openInNaverMap()
+        let preferredApp: PreferredMapApp = preferredExternalMapApp == .kakao ? .kakao : .naver
+        if let url = ExternalMapOpener.resolvedURL(for: place, preferredApp: preferredApp) {
+            openURL(url)
         }
-    }
-
-    private func openInKakaoMap() {
-        guard let url = URL(string: "kakaomap://look?p=\(place.latitude),\(place.longitude)") else {
-            return
-        }
-        openURL(url)
-    }
-
-    private func openInNaverMap() {
-        let encodedName = place.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "목적지"
-        guard let url = URL(string: "nmap://place?lat=\(place.latitude)&lng=\(place.longitude)&name=\(encodedName)&appname=anthony.pongdang") else {
-            return
-        }
-        openURL(url)
     }
 
     private static let dateFormatter: DateFormatter = {

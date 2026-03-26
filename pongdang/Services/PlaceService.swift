@@ -86,6 +86,7 @@ final class PlaceService: ObservableObject {
             "category": place.category.rawValue,
             "tags": place.tags,
             "memo": place.memo as Any,
+            "sourceURL": place.sourceURL as Any,
             "addedBy": place.addedBy,
             "addedAt": Timestamp(date: place.addedAt),
             "isVisited": place.isVisited

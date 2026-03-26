@@ -13,6 +13,7 @@
 		D4642D452F73BFED00952C30 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D442F73BFED00952C30 /* FirebaseStorage */; };
 		D4642D4A2F73C3D100952C30 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D492F73C3D100952C30 /* GoogleSignIn */; };
 		D4642D4C2F73C3D100952C30 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = D4642D4B2F73C3D100952C30 /* GoogleSignInSwift */; };
+		D4ACA9832F75478C00F3B989 /* pongdangShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D4ACA9792F75478C00F3B989 /* pongdangShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -30,12 +31,34 @@
 			remoteGlobalIDString = D4642CDC2F73B98A00952C30;
 			remoteInfo = pongdang;
 		};
+		D4ACA9812F75478C00F3B989 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D4642CD52F73B98A00952C30 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4ACA9782F75478C00F3B989;
+			remoteInfo = pongdangShareExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D4ACA9842F75478C00F3B989 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D4ACA9832F75478C00F3B989 /* pongdangShareExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		D4642CDD2F73B98A00952C30 /* pongdang.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = pongdang.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D4642CEA2F73B99100952C30 /* pongdangTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pongdangTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D4642CF42F73B99100952C30 /* pongdangUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pongdangUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4ACA9792F75478C00F3B989 /* pongdangShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = pongdangShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -45,6 +68,13 @@
 				Info.plist,
 			);
 			target = D4642CDC2F73B98A00952C30 /* pongdang */;
+		};
+		D4ACA9882F75478C00F3B989 /* Exceptions for "pongdangShareExtension" folder in "pongdangShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D4ACA9782F75478C00F3B989 /* pongdangShareExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -65,6 +95,14 @@
 		D4642CF72F73B99100952C30 /* pongdangUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = pongdangUITests;
+			sourceTree = "<group>";
+		};
+		D4ACA97A2F75478C00F3B989 /* pongdangShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D4ACA9882F75478C00F3B989 /* Exceptions for "pongdangShareExtension" folder in "pongdangShareExtension" target */,
+			);
+			path = pongdangShareExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -97,6 +135,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D4ACA9762F75478C00F3B989 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -106,6 +151,7 @@
 				D4642CDF2F73B98A00952C30 /* pongdang */,
 				D4642CED2F73B99100952C30 /* pongdangTests */,
 				D4642CF72F73B99100952C30 /* pongdangUITests */,
+				D4ACA97A2F75478C00F3B989 /* pongdangShareExtension */,
 				D4642CDE2F73B98A00952C30 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -116,6 +162,7 @@
 				D4642CDD2F73B98A00952C30 /* pongdang.app */,
 				D4642CEA2F73B99100952C30 /* pongdangTests.xctest */,
 				D4642CF42F73B99100952C30 /* pongdangUITests.xctest */,
+				D4ACA9792F75478C00F3B989 /* pongdangShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -130,10 +177,12 @@
 				D4642CD92F73B98A00952C30 /* Sources */,
 				D4642CDA2F73B98A00952C30 /* Frameworks */,
 				D4642CDB2F73B98A00952C30 /* Resources */,
+				D4ACA9842F75478C00F3B989 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D4ACA9822F75478C00F3B989 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D4642CDF2F73B98A00952C30 /* pongdang */,
@@ -197,6 +246,28 @@
 			productReference = D4642CF42F73B99100952C30 /* pongdangUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		D4ACA9782F75478C00F3B989 /* pongdangShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D4ACA9872F75478C00F3B989 /* Build configuration list for PBXNativeTarget "pongdangShareExtension" */;
+			buildPhases = (
+				D4ACA9752F75478C00F3B989 /* Sources */,
+				D4ACA9762F75478C00F3B989 /* Frameworks */,
+				D4ACA9772F75478C00F3B989 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D4ACA97A2F75478C00F3B989 /* pongdangShareExtension */,
+			);
+			name = pongdangShareExtension;
+			packageProductDependencies = (
+			);
+			productName = pongdangShareExtension;
+			productReference = D4ACA9792F75478C00F3B989 /* pongdangShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -217,6 +288,9 @@
 					D4642CF32F73B99100952C30 = {
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = D4642CDC2F73B98A00952C30;
+					};
+					D4ACA9782F75478C00F3B989 = {
+						CreatedOnToolsVersion = 26.3;
 					};
 				};
 			};
@@ -241,6 +315,7 @@
 				D4642CDC2F73B98A00952C30 /* pongdang */,
 				D4642CE92F73B99100952C30 /* pongdangTests */,
 				D4642CF32F73B99100952C30 /* pongdangUITests */,
+				D4ACA9782F75478C00F3B989 /* pongdangShareExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -261,6 +336,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D4642CF22F73B99100952C30 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D4ACA9772F75478C00F3B989 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -291,6 +373,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D4ACA9752F75478C00F3B989 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -303,6 +392,11 @@
 			isa = PBXTargetDependency;
 			target = D4642CDC2F73B98A00952C30 /* pongdang */;
 			targetProxy = D4642CF52F73B99100952C30 /* PBXContainerItemProxy */;
+		};
+		D4ACA9822F75478C00F3B989 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D4ACA9782F75478C00F3B989 /* pongdangShareExtension */;
+			targetProxy = D4ACA9812F75478C00F3B989 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -580,6 +674,68 @@
 			};
 			name = Release;
 		};
+		D4ACA9852F75478C00F3B989 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = pongdangShareExtension/pongdangShareExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = pongdangShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = pongdangShareExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang.pongdangShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D4ACA9862F75478C00F3B989 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = pongdangShareExtension/pongdangShareExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C93BJL2HKK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = pongdangShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = pongdangShareExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang.pongdangShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -615,6 +771,15 @@
 			buildConfigurations = (
 				D4642D052F73B99100952C30 /* Debug */,
 				D4642D062F73B99100952C30 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D4ACA9872F75478C00F3B989 /* Build configuration list for PBXNativeTarget "pongdangShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4ACA9852F75478C00F3B989 /* Debug */,
+				D4ACA9862F75478C00F3B989 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
