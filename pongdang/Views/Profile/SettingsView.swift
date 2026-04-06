@@ -75,14 +75,6 @@ struct SettingsView: View {
                 .pickerStyle(.inline)
             }
 
-            Section("알림") {
-                Toggle("앱 알림", isOn: $localNotificationsEnabled)
-
-                Text("메모 추가와 방문 기록 저장 알림을 앱에서 받을 수 있습니다.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
             Section {
                 AppSheetFooter()
             }

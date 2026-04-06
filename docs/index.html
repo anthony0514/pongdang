@@ -11,14 +11,14 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #fdf8f4;
+      --bg: #edf4fb;
       --surface: #ffffff;
-      --accent: #f4845f;
-      --accent2: #f9b8a0;
-      --text: #2b1f1a;
-      --muted: #9e8880;
-      --border: #ede6e0;
-      --ripple: #f4845f22;
+      --accent: #2f7fb8;
+      --accent2: #7fd4f3;
+      --text: #10314d;
+      --muted: #6f8aa1;
+      --border: #dce8f1;
+      --ripple: #2f7fb822;
     }
 
     html { scroll-behavior: smooth; }
@@ -37,8 +37,8 @@
       position: fixed;
       inset: 0;
       background:
-        radial-gradient(ellipse 60% 40% at 80% 10%, #fde8df88 0%, transparent 60%),
-        radial-gradient(ellipse 50% 60% at 10% 80%, #fde8df44 0%, transparent 60%);
+        radial-gradient(ellipse 60% 40% at 80% 10%, #c5ebfb88 0%, transparent 60%),
+        radial-gradient(ellipse 50% 60% at 10% 80%, #b9d9f344 0%, transparent 60%);
       pointer-events: none;
       z-index: 0;
     }
@@ -64,15 +64,17 @@
       width: 88px;
       height: 88px;
       border-radius: 26px;
-      background: linear-gradient(145deg, #f4845f, #f9c5b0);
-      box-shadow: 0 8px 32px #f4845f44, 0 2px 8px #f4845f22;
+      background: linear-gradient(145deg, #2f7fb8, #7fd4f3);
+      box-shadow: 0 8px 32px #2f7fb844, 0 2px 8px #2f7fb822;
       margin-bottom: 28px;
       animation: floatIn .8s cubic-bezier(.22,1,.36,1) both;
+      overflow: hidden;
     }
 
-    .logo-ring span {
-      font-size: 42px;
-      line-height: 1;
+    .logo-ring img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     h1 {
@@ -144,7 +146,7 @@
       width: 44px;
       height: 44px;
       border-radius: 14px;
-      background: #fff5f1;
+      background: #edf6fc;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -194,7 +196,7 @@
   <div class="wrap">
 
     <header>
-      <div class="logo-ring"><span>📍</span></div>
+      <div class="logo-ring"><img src="./app_icon.png" alt="퐁당 앱 아이콘" /></div>
       <h1>퐁당</h1>
       <p class="tagline">우리만의 장소를 함께 저장하고<br>방문 기록을 지도와 캘린더로 쌓아가는 앱</p>
     </header>
@@ -247,7 +249,7 @@
     </section>
 
     <footer>
-      © 2025 Pongdang · <a href="./privacy.html" style="color:var(--muted)">개인정보처리방침</a>
+      © 2026 Pongdang · <a href="./privacy.html" style="color:var(--muted)">개인정보처리방침</a>
     </footer>
 
   </div>

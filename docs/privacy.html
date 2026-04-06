@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>퐁당 — 개인정보처리방침</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Serif+KR:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #edf4fb;
+      --surface: #ffffff;
+      --accent: #2f7fb8;
+      --accent2: #7fd4f3;
+      --text: #10314d;
+      --muted: #6f8aa1;
+      --border: #dce8f1;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Gowun Dodum', serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.75;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 40% at 80% 10%, #c5ebfb88 0%, transparent 60%),
+        radial-gradient(ellipse 50% 60% at 10% 80%, #b9d9f344 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 0 24px 72px;
+    }
+
+    header {
+      text-align: center;
+      padding: 72px 0 48px;
+    }
+
+    .logo-ring {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 92px;
+      height: 92px;
+      border-radius: 28px;
+      background: linear-gradient(145deg, #2f7fb8, #7fd4f3);
+      box-shadow: 0 8px 32px #2f7fb844, 0 2px 8px #2f7fb822;
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+
+    .logo-ring img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    h1 {
+      font-family: 'Noto Serif KR', serif;
+      font-size: 2.3rem;
+      font-weight: 600;
+      letter-spacing: -.02em;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 32px;
+      box-shadow: 0 2px 16px #10314d10;
+    }
+
+    section + section {
+      margin-top: 18px;
+    }
+
+    h2 {
+      font-family: 'Noto Serif KR', serif;
+      font-size: 1.08rem;
+      margin-bottom: 10px;
+      color: var(--accent);
+    }
+
+    p + p, ul + p, p + ul, ul + ul {
+      margin-top: 10px;
+    }
+
+    ul {
+      padding-left: 18px;
+    }
+
+    li + li {
+      margin-top: 6px;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .meta {
+      margin-top: 28px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    footer {
+      text-align: center;
+      padding-top: 28px;
+      margin-top: 28px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 1.9rem; }
+      .card { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo-ring">
+        <img src="./app_icon.png" alt="퐁당 앱 아이콘" />
+      </div>
+      <h1>개인정보처리방침</h1>
+      <p class="subtitle">퐁당 서비스 운영을 위한 개인정보 처리 기준</p>
+    </header>
+
+    <div class="card">
+      <section>
+        <h2>1. 총칙</h2>
+        <p>퐁당(이하 “앱”)은 이용자의 개인정보를 중요하게 생각하며, 관련 법령을 준수합니다. 본 개인정보처리방침은 앱에서 어떤 정보를 수집하고, 어떤 목적으로 이용하며, 어떻게 보호하는지 설명합니다.</p>
+      </section>
+
+      <section>
+        <h2>2. 수집하는 정보</h2>
+        <p>앱은 다음 정보를 수집하거나 이용할 수 있습니다.</p>
+        <ul>
+          <li>계정 정보: Apple 로그인 또는 Google 로그인 시 제공되는 사용자 식별값, 이름, 프로필 이미지 URL</li>
+          <li>게스트 사용 정보: 게스트 모드 이용 시 로컬에서만 사용하는 이름 정보</li>
+          <li>서비스 이용 정보: 스페이스, 장소, 방문 기록, 태그, 메모, 방문 날짜, 별점</li>
+          <li>위치 정보: 현재 위치 표시 및 내 위치 이동 기능을 위한 기기 위치 정보</li>
+          <li>기기 내 설정 정보: 기본 외부 지도 앱 선택, 앱 알림 설정 여부</li>
+          <li>공유 정보: 외부 지도 앱 공유를 통해 전달된 장소 링크 또는 주소 정보</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>3. 개인정보 이용 목적</h2>
+        <ul>
+          <li>회원 식별 및 로그인 제공</li>
+          <li>스페이스 생성, 참여, 전환 및 멤버 관리</li>
+          <li>장소 저장, 수정, 삭제 및 방문 기록 관리</li>
+          <li>캘린더, 지도, 리스트 기반 장소 일기 서비스 제공</li>
+          <li>현재 위치 표시 및 지도 중심 이동</li>
+          <li>로컬 알림 제공</li>
+          <li>이용자 문의 및 버그 제보 대응</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>4. 개인정보 보관 및 처리 방식</h2>
+        <p>앱의 주요 사용자 데이터는 Firebase 서비스를 통해 저장 및 처리될 수 있습니다.</p>
+        <ul>
+          <li>Firebase Authentication: 로그인 처리</li>
+          <li>Firebase Firestore: 사용자, 스페이스, 장소, 방문 기록 데이터 저장</li>
+        </ul>
+        <p>일부 설정 정보와 공유 확장 전달 정보는 기기 내 저장소(UserDefaults/App Group)에 저장될 수 있습니다.</p>
+      </section>
+
+      <section>
+        <h2>5. 위치정보 처리</h2>
+        <p>앱은 현재 위치 표시 및 내 위치 이동 기능을 위해 위치 권한을 요청할 수 있습니다. 위치 정보는 해당 기능 제공 목적에 한해 사용되며, 사용자가 권한을 허용하지 않아도 핵심 기능 대부분은 이용할 수 있습니다.</p>
+      </section>
+
+      <section>
+        <h2>6. 제3자 제공 및 처리위탁</h2>
+        <p>앱은 서비스 제공을 위해 다음과 같은 외부 서비스를 이용할 수 있습니다.</p>
+        <ul>
+          <li>Google / Firebase</li>
+          <li>Apple 로그인</li>
+          <li>Google 로그인</li>
+          <li>MapKit 및 외부 지도 앱 연동(카카오맵, 네이버지도)</li>
+        </ul>
+        <p>앱은 법령상 요구되는 경우를 제외하고, 이용자의 개인정보를 판매하지 않습니다.</p>
+      </section>
+
+      <section>
+        <h2>7. 보관 기간 및 삭제</h2>
+        <p>이용자의 개인정보는 서비스 제공 기간 동안 보관되며, 계정 삭제 요청 시 관련 데이터는 앱 정책에 따라 삭제됩니다.</p>
+        <ul>
+          <li>사용자가 생성한 스페이스는 해당 스페이스와 관련 데이터가 함께 삭제될 수 있습니다.</li>
+          <li>다른 스페이스에 참여 중인 경우, 사용자가 추가한 장소 및 작성한 방문 기록은 삭제될 수 있습니다.</li>
+          <li>게스트 사용자는 로그아웃 시 로컬 세션이 종료됩니다.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>8. 이용자의 권리</h2>
+        <ul>
+          <li>이름 수정</li>
+          <li>로그아웃</li>
+          <li>계정 삭제 요청</li>
+          <li>앱 알림 설정 변경</li>
+          <li>기기 설정에서 위치 권한 철회</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>9. 아동의 개인정보</h2>
+        <p>앱은 관련 법령에 따라 보호가 필요한 아동의 개인정보를 의도적으로 수집하기 위한 서비스를 제공하지 않습니다.</p>
+      </section>
+
+      <section>
+        <h2>10. 문의처</h2>
+        <p>개인정보 처리와 관련한 문의는 아래 이메일로 연락해 주세요.</p>
+        <p><a href="mailto:anthony0514@naver.com">anthony0514@naver.com</a></p>
+      </section>
+
+      <section>
+        <h2>11. 방침 변경</h2>
+        <p>본 개인정보처리방침은 서비스 변경, 법령 개정 또는 운영 정책 변경에 따라 수정될 수 있습니다. 중요한 변경이 있는 경우 공지 또는 업데이트를 통해 안내합니다.</p>
+      </section>
+
+      <div class="meta">
+        시행일: 2026-04-06
+      </div>
+
+      <footer>
+        © 2026 Pongdang · <a href="./index.html">지원 페이지로 돌아가기</a>
+      </footer>
+    </div>
+  </div>
+</body>
+</html>
