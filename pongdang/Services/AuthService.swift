@@ -134,6 +134,8 @@ class AuthService: ObservableObject {
         errorMessage = nil
 
         do {
+            try ensureRecentlyAuthenticated(firebaseUser)
+
             let userID = currentUser.id
 
             let createdSpacesSnapshot = try await db.collection("spaces")
@@ -237,6 +239,23 @@ class AuthService: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    private func ensureRecentlyAuthenticated(_ user: FirebaseAuth.User) throws {
+        guard let lastSignInDate = user.metadata.lastSignInDate else { return }
+
+        let allowedInterval: TimeInterval = 60 * 5
+        let elapsed = Date().timeIntervalSince(lastSignInDate)
+
+        guard elapsed <= allowedInterval else {
+            throw NSError(
+                domain: "AuthService",
+                code: 401,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "보안을 위해 계정 삭제 전 다시 로그인해야 합니다. 로그아웃 후 다시 로그인한 뒤 재시도해 주세요."
+                ]
+            )
+        }
     }
 
     private func fetchOrCreateUser(uid: String, name: String, photoURL: String?) async {
