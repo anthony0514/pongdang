@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>퐁당 — 지원</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Serif+KR:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #fdf8f4;
+      --surface: #ffffff;
+      --accent: #f4845f;
+      --accent2: #f9b8a0;
+      --text: #2b1f1a;
+      --muted: #9e8880;
+      --border: #ede6e0;
+      --ripple: #f4845f22;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Gowun Dodum', serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── ripple background ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 40% at 80% 10%, #fde8df88 0%, transparent 60%),
+        radial-gradient(ellipse 50% 60% at 10% 80%, #fde8df44 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── hero ── */
+    header {
+      text-align: center;
+      padding: 80px 0 64px;
+    }
+
+    .logo-ring {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 88px;
+      height: 88px;
+      border-radius: 26px;
+      background: linear-gradient(145deg, #f4845f, #f9c5b0);
+      box-shadow: 0 8px 32px #f4845f44, 0 2px 8px #f4845f22;
+      margin-bottom: 28px;
+      animation: floatIn .8s cubic-bezier(.22,1,.36,1) both;
+    }
+
+    .logo-ring span {
+      font-size: 42px;
+      line-height: 1;
+    }
+
+    h1 {
+      font-family: 'Noto Serif KR', serif;
+      font-size: 2.4rem;
+      font-weight: 600;
+      letter-spacing: -.02em;
+      animation: floatIn .8s .1s cubic-bezier(.22,1,.36,1) both;
+    }
+
+    .tagline {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.7;
+      animation: floatIn .8s .2s cubic-bezier(.22,1,.36,1) both;
+    }
+
+    /* ── sections ── */
+    section {
+      margin-bottom: 48px;
+      animation: floatIn .8s .3s cubic-bezier(.22,1,.36,1) both;
+    }
+
+    .section-label {
+      font-size: .72rem;
+      font-weight: 600;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px 32px;
+      box-shadow: 0 2px 16px #2b1f1a08;
+    }
+
+    /* ── FAQ ── */
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 0;
+    }
+    .faq-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .faq-item:first-child { padding-top: 0; }
+
+    .faq-q {
+      font-family: 'Noto Serif KR', serif;
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .faq-a {
+      font-size: .93rem;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    /* ── contact ── */
+    .contact-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .contact-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: #fff5f1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .contact-text p { font-size: .82rem; color: var(--muted); margin-bottom: 2px; }
+    .contact-text a {
+      color: var(--accent);
+      font-size: .97rem;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .contact-text a:hover { text-decoration: underline; }
+
+    /* ── ripple divider ── */
+    .ripple-divider {
+      text-align: center;
+      margin: 20px 0 32px;
+      color: var(--accent2);
+      font-size: 1.4rem;
+      letter-spacing: 6px;
+    }
+
+    /* ── footer ── */
+    footer {
+      text-align: center;
+      padding: 32px 0 56px;
+      font-size: .8rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      margin-top: 16px;
+    }
+
+    @keyframes floatIn {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 1.9rem; }
+      .card { padding: 22px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <header>
+      <div class="logo-ring"><span>📍</span></div>
+      <h1>퐁당</h1>
+      <p class="tagline">우리만의 장소를 함께 저장하고<br>방문 기록을 지도와 캘린더로 쌓아가는 앱</p>
+    </header>
+
+    <div class="ripple-divider">· · ·</div>
+
+    <section>
+      <p class="section-label">자주 묻는 질문</p>
+      <div class="card">
+
+        <div class="faq-item">
+          <p class="faq-q">퐁당은 몇 명까지 함께 쓸 수 있나요?</p>
+          <p class="faq-a">현재 스페이스(그룹) 인원 제한은 없습니다. 커플, 친구, 가족 등 원하는 인원과 자유롭게 사용하세요.</p>
+        </div>
+
+        <div class="faq-item">
+          <p class="faq-q">초대는 어떻게 하나요?</p>
+          <p class="faq-a">스페이스 설정에서 초대 코드를 생성하고, 함께 쓸 사람에게 코드를 공유하면 됩니다.</p>
+        </div>
+
+        <div class="faq-item">
+          <p class="faq-q">카카오맵·네이버지도 링크를 바로 추가할 수 있나요?</p>
+          <p class="faq-a">네, 지원합니다. 지도 앱에서 공유 버튼을 누르고 퐁당을 선택하면 장소가 자동으로 추가됩니다.</p>
+        </div>
+
+        <div class="faq-item">
+          <p class="faq-q">계정을 삭제하면 데이터는 어떻게 되나요?</p>
+          <p class="faq-a">내가 만든 스페이스와 그 안의 모든 데이터가 삭제됩니다. 다른 스페이스에 참여 중이었다면, 내가 추가한 장소와 방문 기록만 삭제되고 스페이스 자체는 유지됩니다.</p>
+        </div>
+
+        <div class="faq-item">
+          <p class="faq-q">방문 기록을 미래 날짜로 저장할 수 있나요?</p>
+          <p class="faq-a">네, 가능합니다. 미래 날짜로 설정한 기록은 캘린더에서 빨간 점으로 표시되어 '가기로 한 곳'처럼 활용할 수 있습니다.</p>
+        </div>
+
+      </div>
+    </section>
+
+    <section>
+      <p class="section-label">문의하기</p>
+      <div class="card">
+        <div class="contact-row">
+          <div class="contact-icon">✉️</div>
+          <div class="contact-text">
+            <p>이메일로 문의해주세요</p>
+            <a href="mailto:support@pongdang.app">ahnjh05141@naver.com</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      © 2025 Pongdang · <a href="./privacy.html" style="color:var(--muted)">개인정보처리방침</a>
+    </footer>
+
+  </div>
+</body>
+</html>
