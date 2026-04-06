@@ -32,10 +32,15 @@ struct PlaceListView: View {
     @State private var placeToDelete: Place?
     @State private var visitRecords: [VisitRecord] = []
     @State private var visitRecordListener: ListenerRegistration?
+    @State private var searchableContentByPlaceID: [String: String] = [:]
+    @State private var searchIndexBuildTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
-            Group {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+
                 if spaceService.activeSpace == nil {
                     ContentUnavailableView(
                         "스페이스가 없습니다",
@@ -43,54 +48,25 @@ struct PlaceListView: View {
                         description: Text("먼저 스페이스를 만들거나 참여해 주세요.")
                     )
                 } else {
-                    List {
-                        searchSection
+                    VStack(spacing: 12) {
                         filtersSection
 
-                        if filteredPlaces.isEmpty {
-                            ContentUnavailableView(
-                                "표시할 장소가 없습니다",
-                                systemImage: "list.bullet.rectangle",
-                                description: Text(emptyStateDescription)
-                            )
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                        } else {
-                            ForEach(filteredPlaces) { place in
-                                NavigationLink {
-                                    PlaceDetailView(place: place)
-                                        .environmentObject(spaceService)
-                                        .environmentObject(authService)
-                                } label: {
-                                    PlaceListRow(place: place) {
-                                        navigationState.showPlaceOnMap(placeID: place.id)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button("삭제", role: .destructive) {
-                                        placeToDelete = place
-                                    }
-                                    .tint(.red)
-
-                                    Button("수정") {
-                                        placeToEdit = place
-                                    }
-                                    .tint(Color(hex: "2F7FB8"))
-                                }
-                            }
-                        }
+                        placeListSection
                     }
-                    .listStyle(.plain)
+                    .padding(.top, 8)
                 }
             }
             .navigationTitle("버킷리스트")
             .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                bottomSearchField
+            }
             .onAppear {
                 if let space = spaceService.activeSpace {
                     viewModel.fetchPlaces(for: space.id)
                     listenForVisitRecords(spaceID: space.id)
                 }
+                scheduleSearchIndexRebuild()
             }
             .onChange(of: spaceService.activeSpace) { _, space in
                 if let space {
@@ -99,11 +75,20 @@ struct PlaceListView: View {
                 } else {
                     viewModel.places = []
                     visitRecords = []
+                    searchableContentByPlaceID = [:]
+                    searchIndexBuildTask?.cancel()
                     visitRecordListener?.remove()
                     visitRecordListener = nil
                 }
             }
+            .onChange(of: viewModel.places) { _, _ in
+                scheduleSearchIndexRebuild()
+            }
+            .onChange(of: visitRecords) { _, _ in
+                scheduleSearchIndexRebuild()
+            }
             .onDisappear {
+                searchIndexBuildTask?.cancel()
                 visitRecordListener?.remove()
                 visitRecordListener = nil
             }
@@ -136,67 +121,126 @@ struct PlaceListView: View {
         }
     }
 
-    private var searchSection: some View {
-        Section {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+    private var bottomSearchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
 
-                TextField("장소 검색", text: $searchText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+            TextField("장소 검색", text: $searchText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
 
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.vertical, 4)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.1), radius: 10, y: 4)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
     }
 
     private var filtersSection: some View {
-        Section {
-            VStack(spacing: 12) {
-                Picker("보기 기준", selection: $selectedStatusFilter) {
-                    ForEach(StatusFilter.allCases) { filter in
-                        Text(filter.rawValue).tag(filter)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                HStack {
-                    Text("정렬 기준")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Menu {
-                        ForEach(SortOption.allCases) { option in
-                            Button {
-                                selectedSortOption = option
-                            } label: {
-                                if selectedSortOption == option {
-                                    Label(option.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(option.rawValue)
-                                }
-                            }
-                        }
-                    } label: {
-                        Text(selectedSortOption.rawValue)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                    }
+        VStack(spacing: 12) {
+            Picker("보기 기준", selection: $selectedStatusFilter) {
+                ForEach(StatusFilter.allCases) { filter in
+                    Text(filter.rawValue).tag(filter)
                 }
             }
-            .padding(.vertical, 4)
+            .pickerStyle(.segmented)
+
+            HStack {
+                Text("정렬 기준")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Picker("정렬 기준", selection: $selectedSortOption) {
+                    ForEach(SortOption.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 108, alignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.45), lineWidth: 0.6)
+        )
+        .padding(.horizontal, 16)
+    }
+
+    private var placeListSection: some View {
+        Group {
+            if filteredPlaces.isEmpty {
+                ContentUnavailableView(
+                    "표시할 장소가 없습니다",
+                    systemImage: "list.bullet.rectangle",
+                    description: Text(emptyStateDescription)
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.horizontal, 16)
+            } else {
+                List {
+                    ForEach(filteredPlaces) { place in
+                        Button {
+                            navigationState.showPlaceOnMap(
+                                placeID: place.id,
+                                presentDetail: true,
+                                compactDetailSheet: true
+                            )
+                        } label: {
+                            PlaceListRow(place: place)
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("삭제", role: .destructive) {
+                                placeToDelete = place
+                            }
+                            .tint(.red)
+
+                            Button("수정") {
+                                placeToEdit = place
+                            }
+                            .tint(Color(hex: "2F7FB8"))
+                        }
+                        .listRowBackground(Color(.secondarySystemGroupedBackground))
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.horizontal, 16)
+            }
         }
     }
 
@@ -221,24 +265,7 @@ struct PlaceListView: View {
             searchFiltered = statusFiltered
         } else {
             searchFiltered = statusFiltered.filter { place in
-                let relatedVisitRecords = visitRecords.filter { $0.placeID == place.id }
-                let visitRecordText = relatedVisitRecords
-                    .flatMap { [$0.title, $0.body ?? ""] }
-                    .joined(separator: "\n")
-
-                let fields = [
-                    place.name,
-                    place.address,
-                    place.category.rawValue,
-                    place.memo ?? "",
-                    place.tags.joined(separator: " "),
-                    visitRecordText
-                ]
-
-                return fields
-                    .joined(separator: "\n")
-                    .lowercased()
-                    .contains(normalizedQuery)
+                searchableContentByPlaceID[place.id, default: ""].contains(normalizedQuery)
             }
         }
 
@@ -292,17 +319,79 @@ struct PlaceListView: View {
             visitRecords = records
         }
     }
+
+    private func scheduleSearchIndexRebuild() {
+        searchIndexBuildTask?.cancel()
+
+        let places = viewModel.places
+        let records = visitRecords
+
+        searchIndexBuildTask = Task {
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+
+            let index = await buildSearchIndex(places: places, records: records)
+            guard !Task.isCancelled else { return }
+
+            searchableContentByPlaceID = index
+        }
+    }
+
+    private func buildSearchIndex(places: [Place], records: [VisitRecord]) async -> [String: String] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let visitRecordTextByPlaceID = Dictionary(grouping: records, by: \.placeID)
+                    .mapValues { records in
+                        records
+                            .flatMap { [$0.title, $0.body ?? ""] }
+                            .joined(separator: "\n")
+                    }
+
+                let index = Dictionary(uniqueKeysWithValues: places.map { place in
+                    let fields = [
+                        place.name,
+                        place.address,
+                        place.category.rawValue,
+                        place.memo ?? "",
+                        place.tags.joined(separator: " "),
+                        visitRecordTextByPlaceID[place.id] ?? ""
+                    ]
+
+                    return (place.id, fields.joined(separator: "\n").lowercased())
+                })
+
+                continuation.resume(returning: index)
+            }
+        }
+    }
 }
 
 private struct PlaceListRow: View {
     let place: Place
-    let onShowOnMap: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(place.isVisited ? Color.green : Color.pink)
-                .frame(width: 12, height: 12)
+            ZStack {
+                Circle()
+                    .fill(place.category.accentColor.opacity(0.16))
+                    .frame(width: 34, height: 34)
+
+                Image(systemName: place.category.systemImageName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(place.category.accentColor)
+
+                if place.isVisited {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 12, height: 12)
+                        .overlay(
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 6, weight: .black))
+                                .foregroundStyle(.white)
+                        )
+                        .offset(x: 12, y: -12)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(place.name)
@@ -322,19 +411,6 @@ private struct PlaceListRow: View {
                 .font(.caption)
                 .fontWeight(.semibold)
             }
-
-            Spacer(minLength: 12)
-
-            Button(action: onShowOnMap) {
-                Image(systemName: "mappin.and.ellipse")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 42, height: 42)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("지도에서 보기")
         }
         .padding(.vertical, 4)
     }

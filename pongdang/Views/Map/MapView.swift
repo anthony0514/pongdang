@@ -19,6 +19,7 @@ struct MapView: View {
 
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var appLocationStore: AppLocationStore
     @EnvironmentObject var pendingShareStore: PendingShareStore
     @EnvironmentObject var navigationState: AppNavigationState
     @Environment(\.openURL) private var openURL
@@ -35,10 +36,7 @@ struct MapView: View {
     @State private var longPressSourceURL: String? = nil
     @State private var isResolvingAddress = false
     @State private var showingSpaceSheet = false
-    @State private var showingSettings = false
-    @State private var searchText = ""
-    @State private var isSearching = false
-    @FocusState private var isSearchFieldFocused: Bool
+    @State private var selectedPlaceDetailDetent: PresentationDetent = .fraction(0.34)
     @State private var cameraPosition: MapCameraPosition = .region(
         MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780),
@@ -47,312 +45,217 @@ struct MapView: View {
     )
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            MapReader { proxy in
-                Map(position: $cameraPosition) {
-                    if let userLocation = viewModel.userLocation {
-                        Annotation("내 위치", coordinate: userLocation) {
-                            UserLocationAnnotationView()
-                        }
-                    }
+        configuredContent
+    }
 
-                    ForEach(viewModel.sharedHomeUsers, id: \.id) { user in
-                        if let coordinate = user.homeCoordinate {
-                            Annotation("\(user.name)의 집", coordinate: coordinate) {
-                                HomeAnnotationView(userName: user.name)
-                            }
-                        }
+    private var configuredContent: some View {
+        let contentWithSheets = AnyView(
+            baseContent
+                .sheet(isPresented: $showingPlaceDetail, onDismiss: {
+                    selectedPlace = nil
+                }) {
+                    if let selectedPlace {
+                        PlaceDetailView(
+                            place: selectedPlace,
+                            showsFloatingWriteButton: selectedPlaceDetailDetent == .large
+                        )
+                            .environmentObject(spaceService)
+                            .environmentObject(authService)
+                            .environmentObject(navigationState)
+                            .presentationDetents([.fraction(0.34), .large], selection: $selectedPlaceDetailDetent)
+                            .presentationDragIndicator(.visible)
                     }
+                }
+                .sheet(isPresented: $showingVisitRecordForm) {
+                    if let selectedPlace {
+                        VisitRecordFormView(place: selectedPlace, existingRecord: nil)
+                            .environmentObject(authService)
+                    }
+                }
+                .sheet(isPresented: $showingAddPlace) {
+                    AddPlaceView(
+                        initialCoordinate: longPressCoordinate,
+                        initialAddress: longPressAddress,
+                        initialName: longPressName,
+                        initialSourceURL: longPressSourceURL
+                    )
+                    .environmentObject(spaceService)
+                    .environmentObject(authService)
+                }
+                .sheet(isPresented: $showingSpaceSheet) {
+                    NavigationStack {
+                        SpaceListView()
+                            .environmentObject(spaceService)
+                            .environmentObject(authService)
+                    }
+                }
+        )
 
-                    ForEach(viewModel.places) { place in
-                        Annotation(place.name, coordinate: place.coordinate) {
-                            PlaceAnnotationView(place: place)
-                                .onTapGesture {
-                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                                        selectedPlace = place
-                                    }
-                                }
-                        }
+        let contentWithLifecycle = AnyView(
+            contentWithSheets
+                .onAppear(perform: handleOnAppear)
+                .onChange(of: pendingShareStore.pendingLocation) { _, location in
+                    guard location != nil else { return }
+                    applyPendingShareIfNeeded()
+                }
+                .onChange(of: spaceService.activeSpace) { _, space in
+                    handleActiveSpaceChange(space)
+                }
+                .onChange(of: viewModel.places) { _, places in
+                    handlePlacesChange(places)
+                }
+                .onChange(of: navigationState.mapFocusRequest) { _, request in
+                    guard request != nil else { return }
+                    presentFocusedPlaceIfNeeded(from: viewModel.places)
+                }
+                .onChange(of: navigationState.selectedTab) { _, selectedTab in
+                    guard selectedTab == .map else { return }
+                    presentFocusedPlaceIfNeeded(from: viewModel.places)
+                }
+                .onChange(of: appLocationStore.currentCoordinate) { _, coordinate in
+                    handleCurrentCoordinateChange(coordinate)
+                }
+                .onReceive(viewModel.$region) { region in
+                    cameraPosition = .region(region)
+                }
+        )
+
+        return contentWithLifecycle
+            .overlay {
+                if isResolvingAddress {
+                    ZStack {
+                        Color.black.opacity(0.12)
+                            .ignoresSafeArea()
+                        ProgressView("주소 불러오는 중...")
+                            .padding(20)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
-                .onTapGesture {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        selectedPlace = nil
-                    }
-                    isSearchFieldFocused = false
-                }
-                .mapControls {
-                    MapCompass()
-                    MapScaleView()
-                }
-                .simultaneousGesture(longPressGesture(using: proxy))
             }
+            .tint(DesignSystem.Colors.primary)
+    }
 
-            VStack {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Button {
-                            showingSpaceSheet = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "person.3.fill")
-                                    .font(.caption)
+    private var baseContent: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                if geometry.size.width > 0, geometry.size.height > 0 {
+                    mapLayer
+                } else {
+                    Color.clear
+                }
+                topOverlay
+                floatingActionButtons
+            }
+        }
+    }
 
-                                Text(spaceService.activeSpace?.name ?? "스페이스 선택")
-                                    .font(.subheadline.weight(.semibold))
-                                    .lineLimit(1)
-
-                                Image(systemName: "chevron.down")
-                                    .font(.caption2.weight(.bold))
-                            }
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(glassCapsule)
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-
-                        Button {
-                            showingSettings = true
-                        } label: {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .frame(width: 44, height: 44)
-                                .background(glassCircle)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-
-                        TextField("장소 검색", text: $searchText)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .focused($isSearchFieldFocused)
-                            .onSubmit {
-                                performSearch()
-                            }
-
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                                viewModel.searchResults = []
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(glassRoundedRect)
-
-                    if !viewModel.searchResults.isEmpty {
-                        VStack(spacing: 0) {
-                            ForEach(viewModel.searchResults) { result in
-                                Button {
-                                    applySearchResult(result)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(result.name)
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(.primary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                                        Text(result.address)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 12)
-                                }
-                                .buttonStyle(.plain)
-
-                                if result.id != viewModel.searchResults.last?.id {
-                                    Divider()
-                                        .overlay(Color.white.opacity(0.16))
-                                }
-                            }
-                        }
-                        .background(glassRoundedRect)
+    private var mapLayer: some View {
+        MapReader { proxy in
+            Map(position: $cameraPosition) {
+                if let userLocation = viewModel.userLocation {
+                    Annotation("내 위치", coordinate: userLocation) {
+                        UserLocationAnnotationView()
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+
+                ForEach(viewModel.places) { place in
+                    Annotation(place.name, coordinate: place.coordinate) {
+                        PlaceAnnotationView(place: place)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                    selectedPlace = place
+                                    selectedPlaceDetailDetent = .fraction(0.34)
+                                    showingPlaceDetail = true
+                                }
+                            }
+                    }
+                }
+            }
+            .onTapGesture {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    selectedPlace = nil
+                    showingPlaceDetail = false
+                }
+            }
+            .mapControls {
+                MapCompass()
+                MapScaleView()
+            }
+            .simultaneousGesture(longPressGesture(using: proxy))
+        }
+    }
+
+    private var topOverlay: some View {
+        VStack {
+            HStack {
+                Spacer()
+
+                Button {
+                    showingSpaceSheet = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.3.fill")
+                            .font(.caption)
+
+                        Text(spaceService.activeSpace?.name ?? "스페이스 선택")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(glassCapsule)
+                }
+                .buttonStyle(.plain)
 
                 Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .zIndex(2)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
 
-            if let selectedPlace {
-                PlacePreviewCard(
-                    place: selectedPlace,
-                    onWriteVisitRecord: {
-                        showingVisitRecordForm = true
-                    },
-                    onOpenMapApp: {
-                        openInPreferredMapApp(for: selectedPlace)
-                    }
-                )
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onTapGesture {
-                        showingPlaceDetail = true
-                    }
-            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .zIndex(2)
+    }
 
-            VStack(spacing: 12) {
-                Button {
-                    longPressCoordinate = nil
-                    longPressAddress = nil
-                    longPressName = nil
-                    longPressSourceURL = nil
-                    showingAddPlace = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 48, height: 48)
-                        .background(glassCircle)
-                }
+    private var floatingActionButtons: some View {
+        HStack(spacing: 12) {
+            Button {
+                longPressCoordinate = nil
+                longPressAddress = nil
+                longPressName = nil
+                longPressSourceURL = nil
+                showingAddPlace = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(DesignSystem.Colors.primary)
+                    .frame(width: 58, height: 58)
+                    .background(glassActionButtonBackground)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("장소 추가")
 
-                Button {
-                    viewModel.moveToUserLocation()
-                } label: {
-                    Image(systemName: "location.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 44, height: 44)
-                        .background(glassCircle)
-                }
+            Button {
+                viewModel.moveToUserLocation()
+            } label: {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(DesignSystem.Colors.primary)
+                    .frame(width: 58, height: 58)
+                    .background(glassActionButtonBackground)
             }
-            .padding(.trailing, 16)
-            .padding(.bottom, 20)
-            .offset(y: selectedPlace == nil ? 0 : -96)
-            .animation(.spring(response: 0.32, dampingFraction: 0.86), value: selectedPlace != nil)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .zIndex(1)
+            .buttonStyle(.plain)
+            .accessibilityLabel("현위치로 이동")
         }
-        .sheet(isPresented: $showingPlaceDetail) {
-            if let selectedPlace {
-                PlaceDetailView(place: selectedPlace)
-                    .environmentObject(spaceService)
-                    .environmentObject(authService)
-            }
-        }
-        .sheet(isPresented: $showingVisitRecordForm) {
-            if let selectedPlace {
-                VisitRecordFormView(place: selectedPlace, existingRecord: nil)
-                    .environmentObject(authService)
-            }
-        }
-        .sheet(isPresented: $showingAddPlace) {
-            AddPlaceView(
-                initialCoordinate: longPressCoordinate,
-                initialAddress: longPressAddress,
-                initialName: longPressName,
-                initialSourceURL: longPressSourceURL
-            )
-                .environmentObject(spaceService)
-                .environmentObject(authService)
-        }
-        .sheet(isPresented: $showingSpaceSheet) {
-            NavigationStack {
-                SpaceListView()
-                    .environmentObject(spaceService)
-                    .environmentObject(authService)
-            }
-        }
-        .sheet(isPresented: $showingSettings) {
-            NavigationStack {
-                SettingsView()
-                    .environmentObject(spaceService)
-                    .environmentObject(authService)
-            }
-        }
-        .onAppear {
-            if let space = spaceService.activeSpace {
-                viewModel.fetchPlaces(for: space.id)
-                Task {
-                    await viewModel.fetchSharedHomeUsers(for: space)
-                }
-            }
-            // Share Extension에서 앱을 열었을 때 pending 데이터 처리
-            applyPendingShareIfNeeded()
-        }
-        .onChange(of: pendingShareStore.pendingLocation) { _, location in
-            guard location != nil else { return }
-            applyPendingShareIfNeeded()
-        }
-        .onChange(of: spaceService.activeSpace) { _, space in
-            if let space {
-                viewModel.fetchPlaces(for: space.id)
-                Task {
-                    await viewModel.fetchSharedHomeUsers(for: space)
-                }
-            } else {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                    selectedPlace = nil
-                }
-                viewModel.sharedHomeUsers = []
-            }
-        }
-        .onChange(of: viewModel.places) { _, places in
-            guard let selectedPlace else { return }
-
-            if let updatedPlace = places.first(where: { $0.id == selectedPlace.id }) {
-                self.selectedPlace = updatedPlace
-            } else {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                    self.selectedPlace = nil
-                }
-                showingPlaceDetail = false
-                showingVisitRecordForm = false
-            }
-        }
-        .onChange(of: navigationState.focusedPlaceID) { _, placeID in
-            guard let placeID,
-                  let place = viewModel.places.first(where: { $0.id == placeID }) else { return }
-
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                selectedPlace = place
-            }
-            viewModel.focus(on: place.coordinate)
-            navigationState.focusedPlaceID = nil
-        }
-        .onReceive(viewModel.$region) { region in
-            cameraPosition = .region(region)
-        }
-        .onChange(of: searchText) { _, newValue in
-            guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                viewModel.searchResults = []
-                return
-            }
-
-            guard !isSearching else { return }
-            performSearch()
-        }
-        .overlay {
-            if isResolvingAddress {
-                ZStack {
-                    Color.black.opacity(0.12)
-                        .ignoresSafeArea()
-                    ProgressView("주소 불러오는 중...")
-                        .padding(20)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-            }
-        }
-        .tint(DesignSystem.Colors.primary)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .zIndex(1)
     }
 
     private func applyPendingShareIfNeeded() {
@@ -396,27 +299,69 @@ struct MapView: View {
         }
     }
 
-    private func performSearch() {
-        Task {
-            isSearching = true
-            await viewModel.searchPlaces(
-                query: searchText,
-                region: cameraRegion
-            )
-            isSearching = false
+    private func handleOnAppear() {
+        if let startupCoordinate = appLocationStore.currentCoordinate, viewModel.userLocation == nil {
+            viewModel.applyStartupLocation(startupCoordinate)
+        }
+
+        if let space = spaceService.activeSpace {
+            viewModel.fetchPlaces(for: space.id)
+        }
+        applyPendingShareIfNeeded()
+        presentFocusedPlaceIfNeeded(from: viewModel.places)
+    }
+
+    private func handleActiveSpaceChange(_ space: Space?) {
+        if let space {
+            viewModel.fetchPlaces(for: space.id)
+        } else {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                selectedPlace = nil
+            }
         }
     }
 
-    private func applySearchResult(_ result: MapViewModel.SearchResult) {
-        searchText = result.name
-        viewModel.searchResults = []
-        selectedPlace = nil
-        isSearchFieldFocused = false
-        longPressCoordinate = result.coordinate
-        longPressAddress = result.address
-        longPressName = result.name
-        viewModel.focus(on: result.coordinate)
-        showingAddPlace = true
+    private func handlePlacesChange(_ places: [Place]) {
+        if let selectedPlace {
+            if let updatedPlace = places.first(where: { $0.id == selectedPlace.id }) {
+                self.selectedPlace = updatedPlace
+            } else {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    self.selectedPlace = nil
+                }
+                showingPlaceDetail = false
+                showingVisitRecordForm = false
+            }
+        }
+
+        presentFocusedPlaceIfNeeded(from: places)
+    }
+
+    private func handleCurrentCoordinateChange(_ coordinate: CLLocationCoordinate2D?) {
+        guard let coordinate else { return }
+
+        if viewModel.userLocation == nil {
+            viewModel.applyStartupLocation(coordinate)
+        } else {
+            viewModel.updateUserLocation(coordinate)
+        }
+    }
+
+    private func presentFocusedPlaceIfNeeded(from places: [Place]) {
+        guard let request = navigationState.mapFocusRequest,
+              let place = places.first(where: { $0.id == request.placeID }) else { return }
+
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+            selectedPlace = place
+        }
+        viewModel.focus(on: place.coordinate)
+
+        if request.shouldPresentPlaceDetail {
+            selectedPlaceDetailDetent = request.prefersCompactPlaceDetailSheet ? .fraction(0.34) : .large
+            showingPlaceDetail = true
+        }
+
+        navigationState.mapFocusRequest = nil
     }
 
     private func longPressGesture(using proxy: MapProxy) -> some Gesture {
@@ -430,7 +375,6 @@ struct MapView: View {
 
                 Task {
                     selectedPlace = nil
-                    isSearchFieldFocused = false
                     longPressCoordinate = coordinate
                     longPressName = nil
                     isResolvingAddress = true
@@ -439,10 +383,6 @@ struct MapView: View {
                     showingAddPlace = true
                 }
             }
-    }
-
-    private var cameraRegion: MKCoordinateRegion? {
-        viewModel.region
     }
 
     private var preferredExternalMapApp: ExternalMapApp {
@@ -524,6 +464,42 @@ struct MapView: View {
         }
         .shadow(color: DesignSystem.Colors.cardShadow, radius: 16, y: 9)
     }
+
+    private var glassActionButtonBackground: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DesignSystem.Colors.cardHighlight.opacity(1.15),
+                            Color.white.opacity(0.08)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.24),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .center
+                    )
+                )
+
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.28), lineWidth: 1)
+        }
+        .shadow(color: DesignSystem.Colors.cardShadow.opacity(0.9), radius: 14, y: 7)
+    }
+
 }
 
 private struct PlaceAnnotationView: View {
@@ -532,12 +508,24 @@ private struct PlaceAnnotationView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(place.isVisited ? Color.green : Color.pink)
-                .frame(width: 22, height: 22)
+                .fill(place.category.accentColor)
+                .frame(width: 24, height: 24)
 
-            Image(systemName: place.isVisited ? "checkmark" : "mappin")
-                .font(.system(size: 9, weight: .bold))
+            Image(systemName: place.category.systemImageName)
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white)
+
+            if place.isVisited {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 10, height: 10)
+                    .overlay(
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 5, weight: .black))
+                            .foregroundStyle(.white)
+                    )
+                    .offset(x: 9, y: -9)
+            }
         }
         .overlay(
             Circle()
@@ -561,137 +549,8 @@ private struct UserLocationAnnotationView: View {
     }
 }
 
-private struct HomeAnnotationView: View {
-    let userName: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: "house.fill")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.orange))
-
-            Text(userName)
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.white.opacity(0.24), lineWidth: 0.8)
-                        )
-                )
-        }
-    }
-}
-
-struct PlacePreviewCard: View {
-    let place: Place
-    let onWriteVisitRecord: () -> Void
-    let onOpenMapApp: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(place.name)
-                    .font(.headline)
-                    .fontWeight(.bold)
-
-                HStack(spacing: 8) {
-                    Text(place.category.rawValue)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(Capsule())
-
-                    Text(place.isVisited ? "방문 완료" : "미방문")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(visitStatusColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(visitStatusBackground)
-                        .clipShape(Capsule())
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if place.isVisited {
-                Button(action: onOpenMapApp) {
-                    Image(systemName: "link")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 56, height: 56)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(.secondarySystemBackground))
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("외부 지도 앱에서 열기")
-            } else {
-                HStack(alignment: .center, spacing: 8) {
-                    Button(action: onOpenMapApp) {
-                        Image(systemName: "link")
-                        .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 42, height: 42)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("외부 지도 앱에서 열기")
-
-                    Button(action: onWriteVisitRecord) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 42, height: 42)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color.accentColor)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("방문 기록 작성")
-                }
-            }
-        }
-        .padding(16)
-        .pondangGlassCard(cornerRadius: 22)
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
-                .blur(radius: 0.4)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var visitStatusColor: Color {
-        place.isVisited ? .green : .gray
-    }
-
-    private var visitStatusBackground: Color {
-        (place.isVisited ? Color.green : Color.gray).opacity(0.14)
-    }
-}
-
 private extension Place {
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-    }
-}
-
-private extension AppUser {
-    var homeCoordinate: CLLocationCoordinate2D? {
-        guard let homeLatitude, let homeLongitude else { return nil }
-        return CLLocationCoordinate2D(latitude: homeLatitude, longitude: homeLongitude)
     }
 }

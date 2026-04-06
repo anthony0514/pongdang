@@ -202,12 +202,33 @@ final class HomeLocationManager: NSObject, ObservableObject {
 
     func requestHomeLocation() {
         isLoading = true
-        manager.requestWhenInUseAuthorization()
-        manager.requestLocation()
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .authorizedAlways, .authorizedWhenInUse:
+            manager.requestLocation()
+        case .denied, .restricted:
+            isLoading = false
+        @unknown default:
+            isLoading = false
+        }
     }
 }
 
 extension HomeLocationManager: CLLocationManagerDelegate {
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            if isLoading {
+                manager.requestLocation()
+            }
+        case .denied, .restricted:
+            isLoading = false
+        default:
+            break
+        }
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else {
             isLoading = false
@@ -219,7 +240,7 @@ extension HomeLocationManager: CLLocationManagerDelegate {
         Task { @MainActor in
             let request = MKReverseGeocodingRequest(location: location)
             let mapItem = try? await request?.mapItems.first
-            resolvedAddress = mapItem?.placemark.title ?? mapItem?.name
+            resolvedAddress = mapItem?.address?.fullAddress ?? mapItem?.address?.shortAddress
             isLoading = false
         }
     }

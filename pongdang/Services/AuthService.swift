@@ -5,6 +5,8 @@ import FirebaseFirestore
 
 @MainActor
 class AuthService: ObservableObject {
+    private static let guestUserID = "guest-user"
+
     @Published var firebaseUser: FirebaseAuth.User?
     @Published var currentUser: AppUser?
     @Published var isLoading: Bool = false
@@ -34,8 +36,30 @@ class AuthService: ObservableObject {
         }
     }
 
+    var isGuestUser: Bool {
+        currentUser?.id == Self.guestUserID
+    }
+
+    func continueAsGuest() {
+        errorMessage = nil
+        firebaseUser = nil
+        currentUser = AppUser(
+            id: Self.guestUserID,
+            name: "게스트",
+            profileImageURL: nil,
+            homeAddress: nil,
+            homeLatitude: nil,
+            homeLongitude: nil,
+            createdAt: Date()
+        )
+        hasResolvedAuthState = true
+    }
+
     func signOut() {
         try? Auth.auth().signOut()
+        firebaseUser = nil
+        currentUser = nil
+        errorMessage = nil
     }
 
     func signInWithApple(credential: AuthCredential) async {
@@ -86,11 +110,133 @@ class AuthService: ObservableObject {
     }
 
     func updateDisplayName(userID: String, name: String) async throws {
+        if isGuestUser {
+            currentUser?.name = name
+            return
+        }
+
         try await db.collection("users").document(userID).updateData([
             "name": name
         ])
 
         currentUser?.name = name
+    }
+
+    func deleteCurrentAccount() async throws {
+        if isGuestUser {
+            signOut()
+            return
+        }
+
+        guard let firebaseUser, let currentUser else { return }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let userID = currentUser.id
+
+            let createdSpacesSnapshot = try await db.collection("spaces")
+                .whereField("createdBy", isEqualTo: userID)
+                .getDocuments()
+
+            let createdSpaceIDs = Set(createdSpacesSnapshot.documents.map(\.documentID))
+
+            for spaceDocument in createdSpacesSnapshot.documents {
+                let spaceID = spaceDocument.documentID
+
+                let placesSnapshot = try await db.collection("places")
+                    .whereField("spaceID", isEqualTo: spaceID)
+                    .getDocuments()
+
+                for placeDocument in placesSnapshot.documents {
+                    let recordSnapshot = try await db.collection("visitRecords")
+                        .whereField("placeID", isEqualTo: placeDocument.documentID)
+                        .getDocuments()
+
+                    for recordDocument in recordSnapshot.documents {
+                        try await recordDocument.reference.delete()
+                    }
+
+                    try await placeDocument.reference.delete()
+                }
+
+                let inviteCodesSnapshot = try await db.collection("inviteCodes")
+                    .whereField("spaceID", isEqualTo: spaceID)
+                    .getDocuments()
+
+                for inviteDocument in inviteCodesSnapshot.documents {
+                    try await inviteDocument.reference.delete()
+                }
+
+                try await spaceDocument.reference.delete()
+            }
+
+            let placesSnapshot = try await db.collection("places")
+                .whereField("addedBy", isEqualTo: userID)
+                .getDocuments()
+
+            for placeDocument in placesSnapshot.documents {
+                let data = placeDocument.data()
+                let spaceID = data["spaceID"] as? String
+
+                if let spaceID, createdSpaceIDs.contains(spaceID) {
+                    continue
+                }
+
+                let recordSnapshot = try await db.collection("visitRecords")
+                    .whereField("placeID", isEqualTo: placeDocument.documentID)
+                    .getDocuments()
+
+                for recordDocument in recordSnapshot.documents {
+                    try await recordDocument.reference.delete()
+                }
+
+                try await placeDocument.reference.delete()
+            }
+
+            let spacesSnapshot = try await db.collection("spaces")
+                .whereField("memberIDs", arrayContains: userID)
+                .getDocuments()
+
+            for spaceDocument in spacesSnapshot.documents {
+                if createdSpaceIDs.contains(spaceDocument.documentID) {
+                    continue
+                }
+
+                try await spaceDocument.reference.updateData([
+                    "memberIDs": FieldValue.arrayRemove([userID]),
+                    "sharedHomeMemberIDs": FieldValue.arrayRemove([userID])
+                ])
+            }
+
+            let visitRecordsSnapshot = try await db.collection("visitRecords")
+                .whereField("createdBy", isEqualTo: userID)
+                .getDocuments()
+
+            for recordDocument in visitRecordsSnapshot.documents {
+                let data = recordDocument.data()
+                let spaceID = data["spaceID"] as? String
+
+                if let spaceID, createdSpaceIDs.contains(spaceID) {
+                    continue
+                }
+
+                try await recordDocument.reference.delete()
+            }
+
+            try await db.collection("users").document(userID).delete()
+            try await firebaseUser.delete()
+
+            self.currentUser = nil
+            self.firebaseUser = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            throw error
+        }
+
+        isLoading = false
     }
 
     private func fetchOrCreateUser(uid: String, name: String, photoURL: String?) async {

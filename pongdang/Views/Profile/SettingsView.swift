@@ -19,14 +19,16 @@ struct SettingsView: View {
 
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var spaceService: SpaceService
+    @Environment(\.openURL) private var openURL
 
-    @State private var showingHomeSettings = false
     @State private var draftName = ""
     @State private var savedUserName = ""
     @State private var isSavingName = false
     @State private var didSaveName = false
+    @State private var showingDeleteAccountAlert = false
     @State private var localErrorMessage: String?
     @AppStorage("preferredExternalMapApp") private var preferredExternalMapAppRawValue = ExternalMapApp.kakao.rawValue
+    @AppStorage(AppPreferences.localNotificationsEnabledKey) private var localNotificationsEnabled = true
 
     var body: some View {
         Form {
@@ -57,36 +59,9 @@ struct SettingsView: View {
                     .disabled(!hasPendingNameChange || isSavingName)
                 }
 
-                if let homeSummary {
-                    Text(homeSummary)
+                if authService.isGuestUser {
+                    Text("게스트 모드에서는 로컬로만 이름이 저장됩니다.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("위치 설정") {
-                Button("내 집 위치 설정") {
-                    showingHomeSettings = true
-                }
-
-                if let activeSpace = spaceService.activeSpace {
-                    HStack {
-                        Text("현재 스페이스")
-                        Spacer()
-                        Text(activeSpace.name)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let userID = authService.currentUser?.id {
-                        HStack {
-                            Text("내 집 위치 공개")
-                            Spacer()
-                            Text(activeSpace.sharedHomeMemberIDs.contains(userID) ? "공개 중" : "비공개")
-                                .foregroundStyle(activeSpace.sharedHomeMemberIDs.contains(userID) ? Color.green : .secondary)
-                        }
-                    }
-                } else {
-                    Text("활성 스페이스가 없습니다.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -100,32 +75,51 @@ struct SettingsView: View {
                 .pickerStyle(.inline)
             }
 
+            Section("알림") {
+                Toggle("앱 알림", isOn: $localNotificationsEnabled)
+
+                Text("메모 추가와 방문 기록 저장 알림을 앱에서 받을 수 있습니다.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                AppSheetFooter()
+            }
+
             Section("계정") {
                 Button("로그아웃", role: .destructive) {
                     authService.signOut()
+                }
+
+                if !authService.isGuestUser {
+                    Button("계정 삭제", role: .destructive) {
+                        showingDeleteAccountAlert = true
+                    }
+                    .disabled(authService.isLoading)
                 }
             }
         }
         .navigationTitle("설정")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingHomeSettings) {
-            HomeLocationSettingsView()
-                .environmentObject(authService)
-                .environmentObject(spaceService)
-        }
         .onAppear {
             syncNameFromCurrentUser()
         }
         .onChange(of: authService.currentUser?.name) { _, _ in
             syncNameFromCurrentUser()
         }
-    }
-
-    private var homeSummary: String? {
-        if let address = authService.currentUser?.homeAddress, !address.isEmpty {
-            return address
+        .onChange(of: localNotificationsEnabled) { _, newValue in
+            handleNotificationToggleChange(newValue)
         }
-        return nil
+        .alert("계정을 삭제할까요?", isPresented: $showingDeleteAccountAlert) {
+            Button("삭제", role: .destructive) {
+                deleteAccount()
+            }
+            Button("취소", role: .cancel) {
+            }
+        } message: {
+            Text("계정과 내가 만든 장소 및 기록이 삭제되며 되돌릴 수 없습니다.")
+        }
     }
 
     private var trimmedDraftName: String {
@@ -182,4 +176,31 @@ struct SettingsView: View {
             isSavingName = false
         }
     }
+
+    private func handleNotificationToggleChange(_ isEnabled: Bool) {
+        guard isEnabled else { return }
+
+        Task {
+            let granted = await LocalNotificationManager.requestAuthorizationIfNeeded()
+            guard !granted else { return }
+
+            await MainActor.run {
+                localNotificationsEnabled = false
+                localErrorMessage = "알림 권한이 없습니다. iPhone 설정에서 알림을 허용해 주세요."
+            }
+        }
+    }
+
+    private func deleteAccount() {
+        Task {
+            localErrorMessage = nil
+
+            do {
+                try await authService.deleteCurrentAccount()
+            } catch {
+                localErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
 }

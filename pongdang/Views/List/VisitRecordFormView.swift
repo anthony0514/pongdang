@@ -17,6 +17,11 @@ struct VisitRecordFormView: View {
         existingRecord != nil
     }
 
+    private var canEditFullRecord: Bool {
+        guard let existingRecord else { return true }
+        return existingRecord.createdBy == authService.currentUser?.id
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -29,6 +34,7 @@ struct VisitRecordFormView: View {
                             .foregroundStyle(.secondary)
 
                         StarRatingPicker(rating: $rating)
+                            .disabled(!canEditFullRecord)
 
                         Text("\(rating)점 · \(ratingDescription)")
                             .font(.caption)
@@ -38,11 +44,21 @@ struct VisitRecordFormView: View {
 
                 Section("기록") {
                     TextField("한 줄 제목", text: $title)
+                        .disabled(!canEditFullRecord)
                     TextEditor(text: $bodyText)
                         .frame(minHeight: 140)
+                        .disabled(!canEditFullRecord)
+                }
+
+                if isEditing && !canEditFullRecord {
+                    Section {
+                        Text("다른 멤버가 작성한 기록은 방문 날짜만 수정할 수 있습니다.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            .navigationTitle(isEditing ? "방문 기록 수정" : "방문 기록 작성")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -104,6 +120,10 @@ struct VisitRecordFormView: View {
                     try await visitRecordService.updateVisitRecord(record)
                 } else {
                     try await visitRecordService.addVisitRecord(record)
+                    LocalNotificationManager.schedule(
+                        title: "방문 기록이 저장되었어요",
+                        body: "\(place.name) · \(record.title)"
+                    )
                 }
                 dismiss()
             } catch {
@@ -119,6 +139,14 @@ struct VisitRecordFormView: View {
         case 4: return "좋음"
         default: return "최고"
         }
+    }
+
+    private var navigationTitle: String {
+        if !isEditing {
+            return "방문 기록 작성"
+        }
+
+        return canEditFullRecord ? "방문 기록 수정" : "방문 날짜 수정"
     }
 }
 

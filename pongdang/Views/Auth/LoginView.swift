@@ -9,18 +9,24 @@ struct LoginView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            VStack(spacing: 8) {
+            VStack(spacing: 14) {
+                Image("app_logo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 132, height: 132)
+                    .shadow(color: Color.black.opacity(0.14), radius: 14, y: 6)
+
                 Text("퐁당")
-                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .shadow(color: Color.white.opacity(0.08), radius: 6, y: 2)
 
-                Text("우리 둘만의 장소 일기")
+                Text("우리만의 장소 일기")
                     .font(.subheadline)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
-            .padding(.top, 80)
+            .padding(.top, 48)
 
             Spacer()
 
@@ -48,19 +54,48 @@ struct LoginView: View {
                         .pondangGlassCard(cornerRadius: 18)
                 }
                 .disabled(authService.isLoading)
-
-                if authService.isLoading {
-                    ProgressView("로그인 중...")
-                        .progressViewStyle(.circular)
-                        .tint(DesignSystem.Colors.accent)
-                        .padding(.top, 8)
-                }
             }
+
+            Button {
+                authService.continueAsGuest()
+            } label: {
+                Text("게스트로 둘러보기")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+            .disabled(authService.isLoading)
             .padding(.bottom, 48)
         }
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .pondangScreenBackground()
+        .overlay {
+            if authService.isLoading {
+                ZStack {
+                    Color.black.opacity(0.16)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(DesignSystem.Colors.accent)
+
+                        Text("로그인 중...")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 22)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                    )
+                }
+            }
+        }
         .alert("로그인 오류", isPresented: errorAlertBinding) {
             Button("확인", role: .cancel) {
                 authService.errorMessage = nil

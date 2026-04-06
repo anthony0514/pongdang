@@ -14,8 +14,6 @@ final class MapViewModel: NSObject, ObservableObject {
     }
 
     @Published var places: [Place] = []
-    @Published var sharedHomeUsers: [AppUser] = []
-    @Published var searchResults: [SearchResult] = []
     @Published var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780),
         span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
@@ -23,16 +21,24 @@ final class MapViewModel: NSObject, ObservableObject {
     @Published var userLocation: CLLocationCoordinate2D? = nil
     @Published var isLoading = false
 
+    private struct RepairState {
+        static var repairedPlaceIDs: Set<String> = []
+        static var repairInFlightPlaceIDs: Set<String> = []
+        static var resolvedLocationCache: [String: SearchResult?] = [:]
+        static var repairAttemptsThisLaunch = 0
+        static let maxRepairAttemptsPerLaunch = 8
+    }
+
     private var listener: ListenerRegistration?
     private let db = Firestore.firestore()
     private let locationManager = CLLocationManager()
-    private var hasCenteredOnUserLocation = false
+    private var shouldCenterOnNextLocationUpdate = false
+    private var deferredRepairTask: Task<Void, Never>?
 
     override init() {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.requestWhenInUseAuthorization()
     }
 
     func fetchPlaces(for spaceID: String) {
@@ -42,7 +48,7 @@ final class MapViewModel: NSObject, ObservableObject {
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self, let snapshot else { return }
                 Task { @MainActor in
-                    self.places = snapshot.documents.compactMap { doc -> Place? in
+                    let fetchedPlaces = snapshot.documents.compactMap { doc -> Place? in
                         let d = doc.data()
                         guard
                             let name = d["name"] as? String,
@@ -71,44 +77,10 @@ final class MapViewModel: NSObject, ObservableObject {
                             isVisited: isVisited
                         )
                     }
+                    self.places = fetchedPlaces
+                    self.scheduleCoordinateRepairIfNeeded(for: fetchedPlaces)
                 }
             }
-    }
-
-    func fetchSharedHomeUsers(for space: Space) async {
-        guard !space.sharedHomeMemberIDs.isEmpty else {
-            sharedHomeUsers = []
-            return
-        }
-
-        do {
-            let snapshot = try await db.collection("users")
-                .whereField(FieldPath.documentID(), in: space.sharedHomeMemberIDs)
-                .getDocuments()
-
-            sharedHomeUsers = snapshot.documents.compactMap { document in
-                let data = document.data()
-                guard
-                    let name = data["name"] as? String,
-                    let createdAtTS = data["createdAt"] as? Timestamp
-                else {
-                    return nil
-                }
-
-                return AppUser(
-                    id: document.documentID,
-                    name: name,
-                    profileImageURL: data["profileImageURL"] as? String,
-                    homeAddress: data["homeAddress"] as? String,
-                    homeLatitude: data["homeLatitude"] as? Double,
-                    homeLongitude: data["homeLongitude"] as? Double,
-                    createdAt: createdAtTS.dateValue()
-                )
-            }
-            .filter { $0.homeLatitude != nil && $0.homeLongitude != nil }
-        } catch {
-            sharedHomeUsers = []
-        }
     }
 
     func moveToUserLocation() {
@@ -120,12 +92,28 @@ final class MapViewModel: NSObject, ObservableObject {
             return
         }
 
-        locationManager.requestLocation()
-        guard let loc = locationManager.location else { return }
+        shouldCenterOnNextLocationUpdate = true
+
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedAlways, .authorizedWhenInUse:
+            locationManager.requestLocation()
+        default:
+            shouldCenterOnNextLocationUpdate = false
+        }
+    }
+
+    func applyStartupLocation(_ coordinate: CLLocationCoordinate2D) {
+        userLocation = coordinate
         region = MKCoordinateRegion(
-            center: loc.coordinate,
+            center: coordinate,
             span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
         )
+    }
+
+    func updateUserLocation(_ coordinate: CLLocationCoordinate2D) {
+        userLocation = coordinate
     }
 
     func reverseGeocode(coordinate: CLLocationCoordinate2D) async -> String? {
@@ -133,66 +121,37 @@ final class MapViewModel: NSObject, ObservableObject {
         let request = MKReverseGeocodingRequest(location: location)
         let mapItem = try? await request?.mapItems.first
 
-        if let fullAddress = mapItem?.address?.fullAddress, !fullAddress.isEmpty {
-            return fullAddress
-        }
-
-        if let shortAddress = mapItem?.address?.shortAddress, !shortAddress.isEmpty {
-            return shortAddress
-        }
-
-        return mapItem?.name
-    }
-
-    func searchPlaces(query: String, region: MKCoordinateRegion?) async {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            searchResults = []
-            return
-        }
-
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = normalizedQuery(for: trimmed)
-        request.region = region ?? self.region
-        request.regionPriority = .required
-
-        if let filter = pointOfInterestFilter(for: trimmed) {
-            request.resultTypes = [.pointOfInterest]
-            request.pointOfInterestFilter = filter
-        } else {
-            request.resultTypes = [.pointOfInterest, .address]
-        }
-
-        do {
-            let response = try await MKLocalSearch(request: request).start()
-            let mappedResults = response.mapItems.compactMap { item in
-                return SearchResult(
-                    name: item.name ?? "장소",
-                    address: item.address?.fullAddress ?? item.address?.shortAddress ?? item.name ?? "",
-                    coordinate: item.location.coordinate
-                )
-            }
-
-            searchResults = rankedResults(mappedResults, for: trimmed, limit: 8)
-        } catch {
-            searchResults = []
-        }
+        return preferredAddress(from: mapItem)
     }
 
     func resolveSharedLocation(name: String?, address: String?) async -> SearchResult? {
         let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAddress = address?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cacheKey = [
+            trimmedName ?? "",
+            trimmedAddress ?? ""
+        ].joined(separator: "|").lowercased()
 
-        if let trimmedAddress, !trimmedAddress.isEmpty,
-           let result = await bestAddressMatch(for: trimmedAddress, preferredName: trimmedName) {
-            return result
+        if let cached = RepairState.resolvedLocationCache[cacheKey] {
+            return cached
+        }
+
+        if let trimmedAddress, !trimmedAddress.isEmpty {
+            for candidateAddress in addressCandidates(from: trimmedAddress) {
+                if let result = await bestAddressMatch(for: candidateAddress, preferredName: trimmedName) {
+                    RepairState.resolvedLocationCache[cacheKey] = result
+                    return result
+                }
+            }
         }
 
         if let trimmedName, !trimmedName.isEmpty,
-           let result = await firstSearchResult(for: trimmedName) {
+           let result = await firstSearchResult(for: trimmedName, biasToCurrentRegion: false) {
+            RepairState.resolvedLocationCache[cacheKey] = result
             return result
         }
 
+        RepairState.resolvedLocationCache[cacheKey] = nil
         return nil
     }
 
@@ -259,11 +218,14 @@ final class MapViewModel: NSObject, ObservableObject {
             .map { $0 }
     }
 
-    private func firstSearchResult(for query: String) async -> SearchResult? {
+    private func firstSearchResult(for query: String, biasToCurrentRegion: Bool = true) async -> SearchResult? {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = normalizedQuery(for: query)
-        request.region = region
-        request.regionPriority = .required
+
+        if biasToCurrentRegion {
+            request.region = region
+            request.regionPriority = .required
+        }
 
         if let filter = pointOfInterestFilter(for: query) {
             request.resultTypes = [.pointOfInterest]
@@ -274,10 +236,11 @@ final class MapViewModel: NSObject, ObservableObject {
 
         do {
             let response = try await MKLocalSearch(request: request).start()
-            let mappedResults = response.mapItems.compactMap { item in
-                SearchResult(
+            let mappedResults: [SearchResult] = response.mapItems.compactMap { item -> SearchResult? in
+                guard let address = preferredAddress(from: item) else { return nil }
+                return SearchResult(
                     name: item.name ?? "장소",
-                    address: item.address?.fullAddress ?? item.address?.shortAddress ?? item.name ?? "",
+                    address: address,
                     coordinate: item.location.coordinate
                 )
             }
@@ -291,54 +254,193 @@ final class MapViewModel: NSObject, ObservableObject {
     private func bestAddressMatch(for address: String, preferredName: String?) async -> SearchResult? {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = address
-        request.region = region
-        request.regionPriority = .required
         request.resultTypes = [.address, .pointOfInterest]
 
         do {
             let response = try await MKLocalSearch(request: request).start()
-            let mappedResults = response.mapItems.compactMap { item in
-                SearchResult(
+            let mappedResults: [SearchResult] = response.mapItems.compactMap { item -> SearchResult? in
+                guard let address = preferredAddress(from: item) else { return nil }
+                return SearchResult(
                     name: item.name ?? "장소",
-                    address: item.address?.fullAddress ?? item.address?.shortAddress ?? item.name ?? "",
+                    address: address,
                     coordinate: item.location.coordinate
                 )
             }
 
-            let loweredAddress = address.lowercased()
-            let loweredName = preferredName?.lowercased()
+            let normalizedAddress = normalizedAddressString(address)
+            let normalizedName = preferredName.map(normalizedSearchString)
 
-            return mappedResults
+            let bestMatch = mappedResults
                 .sorted { lhs, rhs in
-                    let lhsAddress = lhs.address.lowercased()
-                    let rhsAddress = rhs.address.lowercased()
-                    let lhsName = lhs.name.lowercased()
-                    let rhsName = rhs.name.lowercased()
+                    let lhsAddress = normalizedAddressString(lhs.address)
+                    let rhsAddress = normalizedAddressString(rhs.address)
+                    let lhsName = normalizedSearchString(lhs.name)
+                    let rhsName = normalizedSearchString(rhs.name)
 
-                    let lhsAddressExact = lhsAddress == loweredAddress ? 0 : 1
-                    let rhsAddressExact = rhsAddress == loweredAddress ? 0 : 1
+                    let lhsAddressExact = lhsAddress == normalizedAddress ? 0 : 1
+                    let rhsAddressExact = rhsAddress == normalizedAddress ? 0 : 1
                     if lhsAddressExact != rhsAddressExact { return lhsAddressExact < rhsAddressExact }
 
-                    let lhsAddressContains = lhsAddress.contains(loweredAddress) ? 0 : 1
-                    let rhsAddressContains = rhsAddress.contains(loweredAddress) ? 0 : 1
+                    let lhsAddressContains = lhsAddress.contains(normalizedAddress) ? 0 : 1
+                    let rhsAddressContains = rhsAddress.contains(normalizedAddress) ? 0 : 1
                     if lhsAddressContains != rhsAddressContains { return lhsAddressContains < rhsAddressContains }
 
-                    if let loweredName {
-                        let lhsNameContains = (lhsName.contains(loweredName) || lhsAddress.contains(loweredName)) ? 0 : 1
-                        let rhsNameContains = (rhsName.contains(loweredName) || rhsAddress.contains(loweredName)) ? 0 : 1
+                    if let normalizedName {
+                        let lhsNameContains = (lhsName.contains(normalizedName) || lhsAddress.contains(normalizedName)) ? 0 : 1
+                        let rhsNameContains = (rhsName.contains(normalizedName) || rhsAddress.contains(normalizedName)) ? 0 : 1
                         if lhsNameContains != rhsNameContains { return lhsNameContains < rhsNameContains }
                     }
 
                     return lhs.name < rhs.name
                 }
                 .first
+
+            guard let bestMatch else { return nil }
+
+            let bestMatchAddress = normalizedAddressString(bestMatch.address)
+            guard isAddressMatchAcceptable(input: normalizedAddress, candidate: bestMatchAddress) else {
+                return nil
+            }
+
+            return bestMatch
         } catch {
             return nil
         }
     }
 
+    private func normalizedAddressString(_ value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: #"[\s\-\(\)\[\],\.]"#, with: "", options: .regularExpression)
+    }
+
+    private func normalizedSearchString(_ value: String) -> String {
+        value
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func addressCandidates(from address: String) -> [String] {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let floorStripped = sanitizedAddressForSearch(trimmed)
+        var candidates: [String] = []
+
+        if !floorStripped.isEmpty {
+            candidates.append(floorStripped)
+        }
+
+        if floorStripped != trimmed {
+            candidates.append(trimmed)
+        }
+
+        let base = candidates.first ?? trimmed
+        if base.hasPrefix("서울 ") {
+            let dropped = String(base.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !dropped.isEmpty && !candidates.contains(dropped) {
+                candidates.append(dropped)
+            }
+        }
+
+        return candidates
+    }
+
+    private func sanitizedAddressForSearch(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s*((지하|지상)\s*)?([Bb]\s*)?\d+\s*(층|f|F)\s*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s*[Bb]\s*\d+\s*$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func preferredAddress(from mapItem: MKMapItem?) -> String? {
+        guard let address = mapItem?.address else { return nil }
+
+        let fullAddress = address.fullAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fullAddress.isEmpty {
+            return fullAddress
+        }
+
+        if let shortAddress = address.shortAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !shortAddress.isEmpty {
+            return shortAddress
+        }
+
+        return nil
+    }
+
+    private func isAddressMatchAcceptable(input: String, candidate: String) -> Bool {
+        guard !input.isEmpty, !candidate.isEmpty else { return false }
+        if input == candidate { return true }
+        if candidate.contains(input) || input.contains(candidate) { return true }
+
+        let commonPrefixLength = zip(input, candidate).prefix { $0 == $1 }.count
+        let threshold = max(8, Int(Double(input.count) * 0.6))
+        return commonPrefixLength >= threshold
+    }
+
+    private func scheduleCoordinateRepairIfNeeded(for places: [Place]) {
+        deferredRepairTask?.cancel()
+
+        guard places.contains(where: shouldRepairCoordinates(for:)) else { return }
+
+        deferredRepairTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled else { return }
+            self.repairStoredCoordinatesIfNeeded(for: places)
+        }
+    }
+
+    private func repairStoredCoordinatesIfNeeded(for places: [Place]) {
+        guard RepairState.repairAttemptsThisLaunch < RepairState.maxRepairAttemptsPerLaunch else { return }
+
+        guard let place = places.first(where: { place in
+            shouldRepairCoordinates(for: place)
+                && !RepairState.repairedPlaceIDs.contains(place.id)
+                && !RepairState.repairInFlightPlaceIDs.contains(place.id)
+        }) else {
+            return
+        }
+
+        RepairState.repairInFlightPlaceIDs.insert(place.id)
+        RepairState.repairAttemptsThisLaunch += 1
+
+        Task {
+            let resolved = await resolveSharedLocation(name: place.name, address: place.address)
+            await MainActor.run {
+                RepairState.repairInFlightPlaceIDs.remove(place.id)
+                RepairState.repairedPlaceIDs.insert(place.id)
+            }
+
+            guard let resolved else { return }
+
+            let currentLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let resolvedLocation = CLLocation(latitude: resolved.coordinate.latitude, longitude: resolved.coordinate.longitude)
+            let distance = currentLocation.distance(from: resolvedLocation)
+
+            guard distance >= 300 else { return }
+
+            try? await db.collection("places").document(place.id).updateData([
+                "latitude": resolved.coordinate.latitude,
+                "longitude": resolved.coordinate.longitude
+            ])
+        }
+    }
+
+    private func shouldRepairCoordinates(for place: Place) -> Bool {
+        guard let sourceURL = place.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sourceURL.isEmpty else {
+            return false
+        }
+
+        let normalizedAddress = normalizedAddressString(place.address)
+        return normalizedAddress.count >= 10
+    }
+
     deinit {
         listener?.remove()
+        deferredRepairTask?.cancel()
     }
 }
 
@@ -346,8 +448,11 @@ extension MapViewModel: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
-            manager.requestLocation()
+            if shouldCenterOnNextLocationUpdate {
+                manager.requestLocation()
+            }
         default:
+            shouldCenterOnNextLocationUpdate = false
             break
         }
     }
@@ -356,8 +461,8 @@ extension MapViewModel: CLLocationManagerDelegate {
         guard let coordinate = locations.last?.coordinate else { return }
         userLocation = coordinate
 
-        if !hasCenteredOnUserLocation {
-            hasCenteredOnUserLocation = true
+        if shouldCenterOnNextLocationUpdate {
+            shouldCenterOnNextLocationUpdate = false
             region = MKCoordinateRegion(
                 center: coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)

@@ -19,6 +19,7 @@ struct PlaceDetailView: View {
 
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
+    @EnvironmentObject var navigationState: AppNavigationState
     @StateObject private var placeService = PlaceService()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -29,6 +30,7 @@ struct PlaceDetailView: View {
     @State private var showingVisitRecordForm = false
     @State private var addedByName = "불러오는 중..."
     @State private var visitRecords: [VisitRecord] = []
+    @State private var authorNamesByUserID: [String: String] = [:]
     @State private var recordToEdit: VisitRecord?
     @State private var recordToDelete: VisitRecord?
 
@@ -36,6 +38,7 @@ struct PlaceDetailView: View {
     @State private var visitRecordListener: ListenerRegistration?
 
     let place: Place
+    let showsFloatingWriteButton: Bool
 
     var body: some View {
         NavigationStack {
@@ -84,6 +87,9 @@ struct PlaceDetailView: View {
             .task(id: place.id) {
                 listenForVisitRecords()
             }
+            .task(id: visitRecords.map(\.createdBy).joined(separator: "|")) {
+                await loadAuthorNamesIfNeeded()
+            }
             .onDisappear {
                 visitRecordListener?.remove()
                 visitRecordListener = nil
@@ -113,21 +119,25 @@ struct PlaceDetailView: View {
                 HStack {
                     Spacer()
 
-                    Button {
-                        showingVisitRecordForm = true
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 24, weight: .bold))
-                            .frame(width: 58, height: 58)
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+                    if showsFloatingWriteButton {
+                        Button {
+                            showingVisitRecordForm = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 24, weight: .bold))
+                                .frame(width: 58, height: 58)
+                                .background(Color(.secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("방문 기록 추가")
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("방문 기록 추가")
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
+                .animation(.easeInOut(duration: 0.18), value: showsFloatingWriteButton)
             }
         }
     }
@@ -154,7 +164,10 @@ struct PlaceDetailView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                 } else {
                     ForEach(visitRecords) { record in
-                        VisitRecordListRow(record: record)
+                        VisitRecordListRow(
+                            record: record,
+                            authorName: authorName(for: record)
+                        )
                             .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                             .listRowSeparator(.visible)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -163,12 +176,12 @@ struct PlaceDetailView: View {
                                         recordToDelete = record
                                     }
                                     .tint(.red)
-
-                                    Button("수정") {
-                                        recordToEdit = record
-                                    }
-                                    .tint(Color(hex: "2F7FB8"))
                                 }
+
+                                Button(editActionTitle(for: record)) {
+                                    recordToEdit = record
+                                }
+                                .tint(Color(hex: "2F7FB8"))
                             }
                     }
                 }
@@ -265,6 +278,41 @@ struct PlaceDetailView: View {
         }
     }
 
+    private func authorName(for record: VisitRecord) -> String? {
+        if record.createdBy == authService.currentUser?.id {
+            return authService.currentUser?.name
+        }
+
+        return authorNamesByUserID[record.createdBy]
+    }
+
+    private func loadAuthorNamesIfNeeded() async {
+        let userIDs = Set(
+            visitRecords
+                .map(\.createdBy)
+                .filter { $0 != authService.currentUser?.id && authorNamesByUserID[$0] == nil }
+        )
+
+        guard !userIDs.isEmpty else { return }
+
+        for userID in userIDs {
+            do {
+                let snapshot = try await Firestore.firestore()
+                    .collection("users")
+                    .document(userID)
+                    .getDocument()
+
+                if let name = snapshot.data()?["name"] as? String, !name.isEmpty {
+                    authorNamesByUserID[userID] = name
+                } else {
+                    authorNamesByUserID[userID] = "알 수 없음"
+                }
+            } catch {
+                authorNamesByUserID[userID] = "알 수 없음"
+            }
+        }
+    }
+
     private var deleteVisitRecordAlertBinding: Binding<Bool> {
         Binding(
             get: { recordToDelete != nil },
@@ -319,6 +367,10 @@ struct PlaceDetailView: View {
         }
     }
 
+    private func editActionTitle(for record: VisitRecord) -> String {
+        record.createdBy == authService.currentUser?.id ? "수정" : "날짜 수정"
+    }
+
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy.MM.dd"
@@ -328,6 +380,7 @@ struct PlaceDetailView: View {
 
 private struct VisitRecordListRow: View {
     let record: VisitRecord
+    let authorName: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -351,9 +404,28 @@ private struct VisitRecordListRow: View {
             }
 
             if let body = record.body, !body.isEmpty {
-                Text(body)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .bottom, spacing: 12) {
+                    Text(body)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 8)
+
+                    if let authorName, !authorName.isEmpty {
+                        Text(authorName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+            } else if let authorName, !authorName.isEmpty {
+                HStack {
+                    Spacer()
+
+                    Text(authorName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 4)

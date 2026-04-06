@@ -48,8 +48,6 @@ enum MapURLParser {
             return parseKakaoMap(url: url)
         } else if host.contains("naver.com") {
             return parseNaverMap(url: url)
-        } else if host.contains("google.com") || host.contains("goo.gl") {
-            return parseGoogleMaps(url: url)
         }
 
         return ParsedMapLocation(sourceURL: url.absoluteString)
@@ -116,43 +114,6 @@ enum MapURLParser {
         return result
     }
 
-    private static func parseGoogleMaps(url: URL) -> ParsedMapLocation {
-        var result = ParsedMapLocation(sourceURL: url.absoluteString)
-        let urlString = url.absoluteString
-
-        let atPattern = #"/@(-?\d+\.?\d+),(-?\d+\.?\d+),"#
-        if let regex = try? NSRegularExpression(pattern: atPattern),
-           let match = regex.firstMatch(in: urlString, range: NSRange(urlString.startIndex..., in: urlString)),
-           let latRange = Range(match.range(at: 1), in: urlString),
-           let lngRange = Range(match.range(at: 2), in: urlString) {
-            result.latitude = Double(urlString[latRange])
-            result.longitude = Double(urlString[lngRange])
-        }
-
-        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        if result.latitude == nil,
-           let q = components?.queryItems?.first(where: { $0.name == "q" })?.value {
-            let parts = q.components(separatedBy: ",")
-            if parts.count == 2,
-               let lat = Double(parts[0].trimmingCharacters(in: .whitespaces)),
-               let lng = Double(parts[1].trimmingCharacters(in: .whitespaces)) {
-                result.latitude = lat
-                result.longitude = lng
-            }
-        }
-
-        let path = url.path
-        if let range = path.range(of: "/place/") {
-            let namePart = String(path[range.upperBound...])
-                .components(separatedBy: "/").first?
-                .removingPercentEncoding?
-                .replacingOccurrences(of: "+", with: " ")
-            result.name = namePart
-        }
-
-        return result
-    }
-
     private static func extractURLs(from text: String) -> [URL] {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
             return []
@@ -204,7 +165,7 @@ enum MapURLParser {
     }
 
     private static func resolveURL(_ url: URL) async -> URL {
-        let shortHosts = ["naver.me", "maps.app.goo.gl", "goo.gl", "kakao.com"]
+        let shortHosts = ["naver.me", "kakao.com"]
         let needsResolve = shortHosts.contains(where: { url.host?.contains($0) == true })
         guard needsResolve else { return url }
 

@@ -2,16 +2,100 @@ import Combine
 import FirebaseCore
 import GoogleSignIn
 import SwiftUI
+import UserNotifications
+
+enum AppPreferences {
+    static let localNotificationsEnabledKey = "localNotificationsEnabled"
+}
+
+enum LocalNotificationManager {
+    static func requestAuthorizationIfNeeded() async -> Bool {
+        guard UserDefaults.standard.bool(forKey: AppPreferences.localNotificationsEnabledKey) else {
+            return false
+        }
+
+        let settings = await notificationSettings()
+
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .notDetermined:
+            return await requestAuthorization()
+        case .denied:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
+    static func schedule(title: String, body: String) {
+        guard UserDefaults.standard.bool(forKey: AppPreferences.localNotificationsEnabledKey) else {
+            return
+        }
+
+        Task {
+            guard await requestAuthorizationIfNeeded() else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false)
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+            try? await add(request)
+        }
+    }
+
+    private static func notificationSettings() async -> UNNotificationSettings {
+        await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                continuation.resume(returning: settings)
+            }
+        }
+    }
+
+    private static func requestAuthorization() async -> Bool {
+        await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
+
+    private static func add(_ request: UNNotificationRequest) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+}
 
 @main
 struct pongdangApp: App {
     @StateObject private var authService = AuthService()
     @StateObject private var pendingShareStore = PendingShareStore()
+    @StateObject private var appLocationStore = AppLocationStore()
 
     init() {
+        UserDefaults.standard.register(defaults: [
+            AppPreferences.localNotificationsEnabledKey: true
+        ])
+
         FirebaseApp.configure()
         if let clientID = FirebaseApp.app()?.options.clientID {
             GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+        }
+
+        if UserDefaults.standard.bool(forKey: AppPreferences.localNotificationsEnabledKey) {
+            Task {
+                _ = await LocalNotificationManager.requestAuthorizationIfNeeded()
+            }
         }
     }
 
@@ -20,6 +104,7 @@ struct pongdangApp: App {
             ContentView()
                 .environmentObject(authService)
                 .environmentObject(pendingShareStore)
+                .environmentObject(appLocationStore)
                 .onOpenURL { url in
                     // Google Sign-In 처리
                     if GIDSignIn.sharedInstance.handle(url) { return }
