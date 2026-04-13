@@ -254,6 +254,7 @@ final class PlaceService: ObservableObject {
             "latitude": place.latitude,
             "longitude": place.longitude,
             "category": place.category.rawValue,
+            "tags": [String](),
             "memo": place.memo as Any,
             "sourceURL": place.sourceURL as Any,
             "addedBy": place.addedBy,
