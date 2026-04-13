@@ -7,34 +7,30 @@ struct AppSheetFooter: View {
         Button {
             showingBrandOverlay = true
         } label: {
-            HStack(spacing: 10) {
-                Spacer(minLength: 0)
-
+            VStack(spacing: 8) {
                 Image("app_logo")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 48, height: 48)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Pongdang")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                Text("Pongdang")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-                    Text(appVersionText)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                Text(appVersionText)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
 
-                    Text("Anthony")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Spacer(minLength: 0)
+                Text("Anthony")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .fullScreenCover(isPresented: $showingBrandOverlay) {
             ZStack {
                 DesignSystem.Backgrounds.lakeGradient

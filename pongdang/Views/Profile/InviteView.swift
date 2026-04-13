@@ -1,21 +1,20 @@
 import SwiftUI
-import UIKit
 
 struct InviteView: View {
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
 
-    @State private var inviteCode = ""
     @State private var joinCode = ""
-    @State private var copiedInviteCode = false
     @State private var toastMessage: String?
+    @State private var localErrorMessage: String?
+    @State private var isJoining = false
 
     private var errorAlertBinding: Binding<Bool> {
         Binding(
-            get: { spaceService.errorMessage != nil },
+            get: { localErrorMessage != nil },
             set: { newValue in
                 if !newValue {
-                    spaceService.errorMessage = nil
+                    localErrorMessage = nil
                 }
             }
         )
@@ -23,93 +22,69 @@ struct InviteView: View {
 
     var body: some View {
         Form {
-            Section("초대하기") {
-                Button("코드 생성") {
-                    Task {
-                        do {
-                            inviteCode = try await spaceService.generateInviteCode(
-                                for: spaceService.activeSpace!.id,
-                                createdBy: authService.currentUser!.id
-                            )
-                        } catch {
-                            spaceService.errorMessage = error.localizedDescription
-                        }
-                    }
-                }
-
-                if !inviteCode.isEmpty {
-                    VStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(.secondarySystemBackground))
-
-                            Text(inviteCode)
-                                .font(.system(size: 28, weight: .bold, design: .rounded))
-                                .padding()
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 100)
-
-                        Button(copiedInviteCode ? "복사됨" : "복사") {
-                            UIPasteboard.general.string = inviteCode
-                            copiedInviteCode = true
-                            showToast("초대 코드를 복사했습니다.")
-                            Task {
-                                try? await Task.sleep(for: .seconds(1.5))
-                                await MainActor.run {
-                                    copiedInviteCode = false
-                                }
-                            }
-                        }
-
-                        Text("이 코드는 48시간 동안 유효합니다")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-
             Section("참여하기") {
                 TextField("6자리 코드 입력", text: $joinCode)
+                    .onChange(of: joinCode) { _, newValue in
+                        joinCode = InputSanitizer.sanitize(newValue.uppercased(), as: .inviteCode)
+                    }
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.center)
 
-                Button("검색") {
+                Button {
                     Task {
+                        isJoining = true
+                        localErrorMessage = nil
                         let normalizedCode = joinCode
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                             .uppercased()
 
                         guard !normalizedCode.isEmpty else {
-                            spaceService.errorMessage = "초대 코드를 입력해 주세요."
+                            localErrorMessage = "초대 코드를 입력해 주세요."
+                            isJoining = false
                             return
                         }
 
                         do {
-                            try await spaceService.joinSpace(
+                            let result = try await spaceService.joinSpace(
                                 with: normalizedCode,
                                 userID: authService.currentUser!.id
                             )
                             joinCode = ""
-                            showToast("스페이스에 참여했습니다.")
+                            showToast(
+                                result == .joined
+                                ? "스페이스에 참여했습니다."
+                                : "이미 참여 중인 스페이스입니다."
+                            )
                         } catch {
-                            spaceService.errorMessage = error.localizedDescription
+                            localErrorMessage = error.localizedDescription
                         }
+                        isJoining = false
                     }
+                } label: {
+                    Text("참여하기")
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
+                .buttonStyle(.plain)
+                .disabled(isJoining)
+                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+
+                Text("초대 코드는 스페이스 관리 화면에서만 생성되며 10분 후 만료됩니다.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("멤버 초대")
+        .navigationTitle("스페이스 참여")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            localErrorMessage = nil
+        }
         .alert("오류", isPresented: errorAlertBinding) {
             Button("확인") {
-                spaceService.errorMessage = nil
+                localErrorMessage = nil
             }
         } message: {
-            Text(spaceService.errorMessage ?? "알 수 없는 오류가 발생했습니다.")
+            Text(localErrorMessage ?? "알 수 없는 오류가 발생했습니다.")
         }
         .overlay(alignment: .bottom) {
             if let toastMessage {

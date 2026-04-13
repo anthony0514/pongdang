@@ -12,12 +12,13 @@ struct VisitRecordFormView: View {
     @State private var rating = 5
     @State private var title = ""
     @State private var bodyText = ""
+    @State private var localErrorMessage: String?
 
     private var isEditing: Bool {
         existingRecord != nil
     }
 
-    private var canEditFullRecord: Bool {
+    private var canEditRecord: Bool {
         guard let existingRecord else { return true }
         return existingRecord.createdBy == authService.currentUser?.id
     }
@@ -27,6 +28,7 @@ struct VisitRecordFormView: View {
             Form {
                 Section("방문 정보") {
                     DatePicker("방문 날짜", selection: $visitedAt, displayedComponents: .date)
+                        .disabled(!canEditRecord)
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("별점")
@@ -34,7 +36,7 @@ struct VisitRecordFormView: View {
                             .foregroundStyle(.secondary)
 
                         StarRatingPicker(rating: $rating)
-                            .disabled(!canEditFullRecord)
+                            .disabled(!canEditRecord)
 
                         Text("\(rating)점 · \(ratingDescription)")
                             .font(.caption)
@@ -44,17 +46,32 @@ struct VisitRecordFormView: View {
 
                 Section("기록") {
                     TextField("한 줄 제목", text: $title)
-                        .disabled(!canEditFullRecord)
+                        .onChange(of: title) { _, newValue in
+                            title = InputSanitizer.truncate(newValue, as: .title)
+                        }
+                        .disabled(!canEditRecord)
                     TextEditor(text: $bodyText)
+                        .onChange(of: bodyText) { _, newValue in
+                            bodyText = InputSanitizer.truncate(newValue, as: .body)
+                        }
                         .frame(minHeight: 140)
-                        .disabled(!canEditFullRecord)
+                        .padding(.horizontal, -4)
+                        .disabled(!canEditRecord)
                 }
 
-                if isEditing && !canEditFullRecord {
+                if isEditing && !canEditRecord {
                     Section {
-                        Text("다른 멤버가 작성한 기록은 방문 날짜만 수정할 수 있습니다.")
+                        Text("다른 멤버가 작성한 기록은 수정할 수 없습니다.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let localErrorMessage, !localErrorMessage.isEmpty {
+                    Section {
+                        Text(localErrorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
                     }
                 }
             }
@@ -71,7 +88,7 @@ struct VisitRecordFormView: View {
                     Button("저장") {
                         saveRecord()
                     }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canEditRecord)
                 }
             }
             .onAppear {
@@ -105,8 +122,8 @@ struct VisitRecordFormView: View {
             placeID: place.id,
             spaceID: place.spaceID,
             placeName: place.name,
-            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-            body: bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : bodyText.trimmingCharacters(in: .whitespacesAndNewlines),
+            title: InputSanitizer.sanitize(title.trimmingCharacters(in: .whitespacesAndNewlines), as: .title),
+            body: bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : InputSanitizer.sanitize(bodyText.trimmingCharacters(in: .whitespacesAndNewlines), as: .body),
             rating: rating,
             photoURLs: existingRecord?.photoURLs ?? [],
             visitedAt: visitedAt,
@@ -116,10 +133,11 @@ struct VisitRecordFormView: View {
 
         Task {
             do {
+                localErrorMessage = nil
                 if isEditing {
-                    try await visitRecordService.updateVisitRecord(record)
+                    try await visitRecordService.updateVisitRecord(record, requestedBy: userID)
                 } else {
-                    try await visitRecordService.addVisitRecord(record)
+                    try await visitRecordService.addVisitRecord(record, requestedBy: userID)
                     LocalNotificationManager.schedule(
                         title: "방문 기록이 저장되었어요",
                         body: "\(place.name) · \(record.title)"
@@ -127,6 +145,7 @@ struct VisitRecordFormView: View {
                 }
                 dismiss()
             } catch {
+                localErrorMessage = visitRecordService.errorMessage ?? error.localizedDescription
             }
         }
     }
@@ -146,7 +165,7 @@ struct VisitRecordFormView: View {
             return "방문 기록 작성"
         }
 
-        return canEditFullRecord ? "방문 기록 수정" : "방문 날짜 수정"
+        return canEditRecord ? "방문 기록 수정" : "방문 기록 보기"
     }
 }
 

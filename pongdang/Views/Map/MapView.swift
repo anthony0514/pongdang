@@ -49,78 +49,7 @@ struct MapView: View {
     }
 
     private var configuredContent: some View {
-        let contentWithSheets = AnyView(
-            baseContent
-                .sheet(isPresented: $showingPlaceDetail, onDismiss: {
-                    selectedPlace = nil
-                }) {
-                    if let selectedPlace {
-                        PlaceDetailView(
-                            place: selectedPlace,
-                            showsFloatingWriteButton: selectedPlaceDetailDetent == .large
-                        )
-                            .environmentObject(spaceService)
-                            .environmentObject(authService)
-                            .environmentObject(navigationState)
-                            .presentationDetents([.fraction(0.34), .large], selection: $selectedPlaceDetailDetent)
-                            .presentationDragIndicator(.visible)
-                    }
-                }
-                .sheet(isPresented: $showingVisitRecordForm) {
-                    if let selectedPlace {
-                        VisitRecordFormView(place: selectedPlace, existingRecord: nil)
-                            .environmentObject(authService)
-                    }
-                }
-                .sheet(isPresented: $showingAddPlace) {
-                    AddPlaceView(
-                        initialCoordinate: longPressCoordinate,
-                        initialAddress: longPressAddress,
-                        initialName: longPressName,
-                        initialSourceURL: longPressSourceURL
-                    )
-                    .environmentObject(spaceService)
-                    .environmentObject(authService)
-                }
-                .sheet(isPresented: $showingSpaceSheet) {
-                    NavigationStack {
-                        SpaceListView()
-                            .environmentObject(spaceService)
-                            .environmentObject(authService)
-                    }
-                }
-        )
-
-        let contentWithLifecycle = AnyView(
-            contentWithSheets
-                .onAppear(perform: handleOnAppear)
-                .onChange(of: pendingShareStore.pendingLocation) { _, location in
-                    guard location != nil else { return }
-                    applyPendingShareIfNeeded()
-                }
-                .onChange(of: spaceService.activeSpace) { _, space in
-                    handleActiveSpaceChange(space)
-                }
-                .onChange(of: viewModel.places) { _, places in
-                    handlePlacesChange(places)
-                }
-                .onChange(of: navigationState.mapFocusRequest) { _, request in
-                    guard request != nil else { return }
-                    presentFocusedPlaceIfNeeded(from: viewModel.places)
-                }
-                .onChange(of: navigationState.selectedTab) { _, selectedTab in
-                    guard selectedTab == .map else { return }
-                    presentFocusedPlaceIfNeeded(from: viewModel.places)
-                }
-                .onChange(of: appLocationStore.currentCoordinate) { _, coordinate in
-                    handleCurrentCoordinateChange(coordinate)
-                }
-                .onReceive(viewModel.$region) { region in
-                    cameraPosition = .region(region)
-                }
-        )
-
-        return contentWithLifecycle
+        lifecycleContent
             .overlay {
                 if isResolvingAddress {
                     ZStack {
@@ -133,6 +62,111 @@ struct MapView: View {
                 }
             }
             .tint(DesignSystem.Colors.primary)
+    }
+
+    private var lifecycleContent: some View {
+        lifecycleContentPhaseTwo
+            .onChange(of: currentCoordinateKey) { _, _ in
+                handleCurrentCoordinateChange(appLocationStore.currentCoordinate)
+            }
+            .onReceive(viewModel.$region) { region in
+                cameraPosition = .region(region)
+            }
+    }
+
+    private var lifecycleContentPhaseTwo: some View {
+        lifecycleContentPhaseOne
+            .onChange(of: navigationState.mapFocusRequest) { _, request in
+                guard request != nil else { return }
+                presentFocusedPlaceIfNeeded(from: viewModel.places)
+            }
+            .onChange(of: navigationState.selectedTab) { _, selectedTab in
+                guard selectedTab == .map else { return }
+                presentFocusedPlaceIfNeeded(from: viewModel.places)
+            }
+    }
+
+    private var lifecycleContentPhaseOne: some View {
+        contentWithSheets
+            .onAppear(perform: handleOnAppear)
+            .onChange(of: pendingShareStore.pendingLocation) { _, location in
+                guard location != nil else { return }
+                applyPendingShareIfNeeded()
+            }
+            .onChange(of: spaceService.activeSpace) { _, space in
+                handleActiveSpaceChange(space)
+            }
+            .onChange(of: viewModel.places) { _, places in
+                handlePlacesChange(places)
+            }
+    }
+
+    private var contentWithSheets: some View {
+        baseContent
+            .sheet(isPresented: $showingPlaceDetail, onDismiss: {
+                selectedPlace = nil
+            }) {
+                placeDetailSheet
+            }
+            .sheet(isPresented: $showingVisitRecordForm) {
+                visitRecordSheet
+            }
+            .sheet(isPresented: $showingAddPlace) {
+                addPlaceSheet
+            }
+            .sheet(isPresented: $showingSpaceSheet) {
+                spaceSheet
+            }
+    }
+
+    @ViewBuilder
+    private var placeDetailSheet: some View {
+        if let selectedPlace {
+            PlaceDetailView(
+                place: selectedPlace,
+                showsFloatingWriteButton: selectedPlaceDetailDetent == .large
+            )
+            .environmentObject(spaceService)
+            .environmentObject(authService)
+            .environmentObject(navigationState)
+            .presentationDetents([.fraction(0.34), .large], selection: $selectedPlaceDetailDetent)
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    @ViewBuilder
+    private var visitRecordSheet: some View {
+        if let selectedPlace {
+            VisitRecordFormView(place: selectedPlace, existingRecord: nil)
+                .environmentObject(authService)
+        }
+    }
+
+    private var addPlaceSheet: some View {
+        AddPlaceView(
+            initialCoordinate: longPressCoordinate,
+            initialAddress: longPressAddress,
+            initialName: longPressName,
+            initialSourceURL: longPressSourceURL
+        )
+        .environmentObject(spaceService)
+        .environmentObject(authService)
+    }
+
+    private var spaceSheet: some View {
+        NavigationStack {
+            SpaceListView()
+                .environmentObject(spaceService)
+                .environmentObject(authService)
+        }
+    }
+
+    private var currentCoordinateKey: String {
+        guard let coordinate = appLocationStore.currentCoordinate else {
+            return "nil"
+        }
+
+        return "\(coordinate.latitude),\(coordinate.longitude)"
     }
 
     private var baseContent: some View {

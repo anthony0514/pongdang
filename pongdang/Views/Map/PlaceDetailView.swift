@@ -4,11 +4,14 @@ import FirebaseFirestore
 
 struct PlaceDetailView: View {
     private enum ExternalMapApp: String {
+        case apple
         case kakao
         case naver
 
         var title: String {
             switch self {
+            case .apple:
+                return "지도"
             case .kakao:
                 return "카카오맵"
             case .naver:
@@ -47,17 +50,19 @@ struct PlaceDetailView: View {
             .navigationTitle(place.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("편집") {
-                            showingEdit = true
-                        }
+                if canManagePlace {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button("편집") {
+                                showingEdit = true
+                            }
 
-                        Button("삭제", role: .destructive) {
-                            showingDeleteAlert = true
+                            Button("삭제", role: .destructive) {
+                                showingDeleteAlert = true
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
@@ -157,32 +162,42 @@ struct PlaceDetailView: View {
             }
 
             Section {
-                if visitRecords.isEmpty {
+                if let errorMessage = visitRecordService.errorMessage, !errorMessage.isEmpty {
+                    Text("방문 기록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                } else if visitRecords.isEmpty {
                     Text("아직 남겨진 방문 기록이 없습니다.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                 } else {
                     ForEach(visitRecords) { record in
-                        VisitRecordListRow(
-                            record: record,
-                            authorName: authorName(for: record)
-                        )
-                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                            .listRowSeparator(.visible)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if record.createdBy == authService.currentUser?.id {
-                                    Button("삭제", role: .destructive) {
-                                        recordToDelete = record
-                                    }
-                                    .tint(.red)
-                                }
-
-                                Button(editActionTitle(for: record)) {
+                        Button {
+                            recordToEdit = record
+                        } label: {
+                            VisitRecordListRow(
+                                record: record,
+                                authorName: authorName(for: record)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.visible)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if record.createdBy == authService.currentUser?.id {
+                                Button("편집") {
                                     recordToEdit = record
                                 }
                                 .tint(Color(hex: "2F7FB8"))
+
+                                Button("삭제", role: .destructive) {
+                                    recordToDelete = record
+                                }
+                                .tint(.red)
                             }
+                        }
                     }
                 }
             }
@@ -192,7 +207,7 @@ struct PlaceDetailView: View {
 
     private var headerSection: some View {
         HStack(alignment: .center, spacing: 8) {
-            Text(place.category.rawValue)
+            Text(place.category.displayName)
                 .font(.subheadline)
                 .fontWeight(.semibold)
                 .padding(.horizontal, 10)
@@ -264,16 +279,16 @@ struct PlaceDetailView: View {
             if let name = snapshot.data()?["name"] as? String, !name.isEmpty {
                 addedByName = name
             } else {
-                addedByName = "알 수 없음"
+                addedByName = place.addedBy == "guest-user" ? "익명" : "알 수 없음"
             }
         } catch {
-            addedByName = "알 수 없음"
+            addedByName = place.addedBy == "guest-user" ? "익명" : "알 수 없음"
         }
     }
 
     private func listenForVisitRecords() {
         visitRecordListener?.remove()
-        visitRecordListener = visitRecordService.listenForPlaceRecords(placeID: place.id) { records in
+        visitRecordListener = visitRecordService.listenForPlaceRecords(spaceID: place.spaceID, placeID: place.id) { records in
             visitRecords = records
         }
     }
@@ -305,12 +320,18 @@ struct PlaceDetailView: View {
                 if let name = snapshot.data()?["name"] as? String, !name.isEmpty {
                     authorNamesByUserID[userID] = name
                 } else {
-                    authorNamesByUserID[userID] = "알 수 없음"
+                    authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
                 }
             } catch {
-                authorNamesByUserID[userID] = "알 수 없음"
+                authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
             }
         }
+    }
+
+    private var canManagePlace: Bool {
+        let currentUserID = authService.currentUser?.id
+        let ownerID = spaceService.activeSpace?.createdBy
+        return currentUserID == place.addedBy || currentUserID == ownerID
     }
 
     private var deleteVisitRecordAlertBinding: Binding<Bool> {
@@ -327,7 +348,10 @@ struct PlaceDetailView: View {
     private func deleteVisitRecord(_ record: VisitRecord) {
         Task {
             do {
-                try await visitRecordService.deleteVisitRecord(record)
+                try await visitRecordService.deleteVisitRecord(
+                    record,
+                    requestedBy: authService.currentUser?.id ?? ""
+                )
                 recordToDelete = nil
             } catch {
             }
@@ -337,7 +361,10 @@ struct PlaceDetailView: View {
     private func deletePlace() {
         Task {
             do {
-                try await placeService.deletePlace(id: place.id)
+                try await placeService.deletePlace(
+                    id: place.id,
+                    requestedBy: authService.currentUser?.id ?? ""
+                )
                 dismiss()
             } catch {
             }
@@ -361,21 +388,16 @@ struct PlaceDetailView: View {
     }
 
     private func openInPreferredMapApp() {
-        let preferredApp: PreferredMapApp = preferredExternalMapApp == .kakao ? .kakao : .naver
+        let preferredApp: PreferredMapApp
+        switch preferredExternalMapApp {
+        case .apple: preferredApp = .apple
+        case .kakao: preferredApp = .kakao
+        case .naver: preferredApp = .naver
+        }
         if let url = ExternalMapOpener.resolvedURL(for: place, preferredApp: preferredApp) {
             openURL(url)
         }
     }
-
-    private func editActionTitle(for record: VisitRecord) -> String {
-        record.createdBy == authService.currentUser?.id ? "수정" : "날짜 수정"
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy.MM.dd"
-        return formatter
-    }()
 }
 
 private struct VisitRecordListRow: View {

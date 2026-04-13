@@ -24,9 +24,22 @@ struct AddPlaceView: View {
     @State private var memo = ""
     @State private var sourceURL: String? = nil
     @State private var isResolvingCoordinate = false
+    @State private var localErrorMessage: String?
+    @State private var isSubmitting = false
 
     private var isEditing: Bool {
         placeToEdit != nil
+    }
+
+    private var normalizedPreviewAddress: String? {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let normalized = extractedRoadAddress(from: trimmed)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty, normalized != trimmed else { return nil }
+        return normalized
     }
 
     var body: some View {
@@ -34,11 +47,25 @@ struct AddPlaceView: View {
             Form {
                 Section("기본 정보") {
                     TextField("장소 이름", text: $name)
-                    TextField("주소", text: $address)
+                        .onChange(of: name) { _, newValue in
+                            name = InputSanitizer.sanitize(newValue, as: .placeName)
+                        }
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("주소", text: $address)
+                            .onChange(of: address) { _, newValue in
+                                address = InputSanitizer.sanitize(newValue, as: .address)
+                            }
+
+                        if let normalizedPreviewAddress {
+                            Text("정제 주소: \(normalizedPreviewAddress)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     Picker("카테고리", selection: $selectedCategory) {
                         ForEach(PlaceCategory.allCases, id: \.self) { category in
-                            Text(category.rawValue).tag(category)
+                            Text(category.displayName).tag(category)
                         }
                     }
                 }
@@ -46,6 +73,9 @@ struct AddPlaceView: View {
                 Section("태그") {
                     HStack {
                         TextField("태그 입력 후 Return", text: $tagInput)
+                            .onChange(of: tagInput) { _, newValue in
+                                tagInput = InputSanitizer.sanitize(newValue, as: .tag)
+                            }
                             .onSubmit(addTag)
                     }
 
@@ -77,7 +107,38 @@ struct AddPlaceView: View {
 
                 Section("메모") {
                     TextEditor(text: $memo)
+                        .onChange(of: memo) { _, newValue in
+                            memo = InputSanitizer.truncate(newValue, as: .body)
+                        }
                         .frame(minHeight: 96)
+                }
+
+                if let localErrorMessage, !localErrorMessage.isEmpty {
+                    Section {
+                        Text(localErrorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                if !isEditing {
+                    Section {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image("app_icon")
+                                .resizable()
+                                .frame(width: 40, height: 40)
+                                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("다른 앱에서 바로 추가하기")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("장소 공유하기 → 퐁당을 선택하세요!")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
             }
             .navigationTitle(isEditing ? "장소 수정" : "장소 추가")
@@ -93,7 +154,12 @@ struct AddPlaceView: View {
                     Button("저장") {
                         savePlace()
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || isSubmitting
+                        || placeService.isLoading
+                        || isResolvingCoordinate
+                    )
                 }
             }
             .onAppear {
@@ -141,7 +207,10 @@ struct AddPlaceView: View {
     }
 
     private func addTag() {
-        let trimmed = tagInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = InputSanitizer.sanitize(
+            tagInput.trimmingCharacters(in: .whitespacesAndNewlines),
+            as: .tag
+        )
         guard !trimmed.isEmpty, !tags.contains(trimmed) else {
             tagInput = ""
             return
@@ -157,15 +226,24 @@ struct AddPlaceView: View {
 
     private func savePlace() {
         guard
-            let spaceID = spaceService.activeSpace?.id,
+            let spaceID = placeToEdit?.spaceID ?? spaceService.activeSpace?.id,
             let userID = authService.currentUser?.id
         else {
             return
         }
 
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sanitizedAddress = sanitizedAddressForSave(address)
-        let trimmedMemo = memo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = InputSanitizer.sanitize(
+            name.trimmingCharacters(in: .whitespacesAndNewlines),
+            as: .placeName
+        )
+        let sanitizedAddress = InputSanitizer.sanitize(
+            sanitizedAddressForSave(address),
+            as: .address
+        )
+        let trimmedMemo = InputSanitizer.sanitize(
+            memo.trimmingCharacters(in: .whitespacesAndNewlines),
+            as: .body
+        )
         let previousMemo = placeToEdit?.memo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let shouldNotifyMemoSaved = !trimmedMemo.isEmpty && trimmedMemo != previousMemo
 
@@ -186,11 +264,13 @@ struct AddPlaceView: View {
         )
 
         Task {
+            isSubmitting = true
             isResolvingCoordinate = true
             let resolvedCoordinate = await resolvedCoordinateForSave(address: sanitizedAddress)
             isResolvingCoordinate = false
 
             do {
+                localErrorMessage = nil
                 let finalCoordinate = resolvedCoordinate ?? CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
                 if isEditing {
                     try await placeService.updatePlace(
@@ -208,7 +288,8 @@ struct AddPlaceView: View {
                             addedBy: place.addedBy,
                             addedAt: place.addedAt,
                             isVisited: place.isVisited
-                        )
+                        ),
+                        requestedBy: userID
                     )
                 } else {
                     try await placeService.addPlace(
@@ -226,7 +307,8 @@ struct AddPlaceView: View {
                             addedBy: place.addedBy,
                             addedAt: place.addedAt,
                             isVisited: place.isVisited
-                        )
+                        ),
+                        requestedBy: userID
                     )
                 }
 
@@ -239,7 +321,9 @@ struct AddPlaceView: View {
 
                 dismiss()
             } catch {
+                localErrorMessage = placeService.errorMessage ?? error.localizedDescription
             }
+            isSubmitting = false
         }
     }
 
@@ -315,8 +399,10 @@ struct AddPlaceView: View {
     private func sanitizedAddressForSave(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: #"\s*((지하|지상)\s*)?([Bb]\s*)?\d+\s*(층|f|F)\s*$"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\s*[Bb]\s*\d+\s*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+\d+\s*호\s*$"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -325,14 +411,21 @@ struct AddPlaceView: View {
         guard !trimmed.isEmpty else { return [] }
 
         let floorStripped = sanitizedAddressForSave(trimmed)
+        let coreRoadAddress = extractedRoadAddress(from: floorStripped)
 
         var candidates: [String] = []
 
+        if !coreRoadAddress.isEmpty {
+            candidates.append(coreRoadAddress)
+        }
+
         // 층 정보가 제거된 주소를 우선 시도
-        if !floorStripped.isEmpty && floorStripped != trimmed {
+        if !floorStripped.isEmpty && !candidates.contains(floorStripped) && floorStripped != trimmed {
             candidates.append(floorStripped)
         }
-        candidates.append(trimmed)
+        if !candidates.contains(trimmed) {
+            candidates.append(trimmed)
+        }
 
         // "서울 " 접두어 제거 변형도 추가
         let base = candidates.first ?? trimmed
@@ -344,6 +437,48 @@ struct AddPlaceView: View {
         }
 
         return candidates
+    }
+
+    private func extractedRoadAddress(from value: String) -> String {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+
+        guard !normalized.isEmpty else { return "" }
+
+        let fullPattern = #"((?:[가-힣]+도|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+)?((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        if let regex = try? NSRegularExpression(pattern: fullPattern),
+           let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+           match.numberOfRanges >= 6,
+           let cityRange = Range(match.range(at: 2), in: normalized),
+           let districtRange = Range(match.range(at: 3), in: normalized),
+           let roadRange = Range(match.range(at: 4), in: normalized),
+           let numberRange = Range(match.range(at: 5), in: normalized) {
+            return [
+                String(normalized[cityRange]),
+                String(normalized[districtRange]),
+                String(normalized[roadRange]),
+                String(normalized[numberRange]),
+            ].joined(separator: " ")
+        }
+
+        let compactPattern = #"((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        if let regex = try? NSRegularExpression(pattern: compactPattern),
+           let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+           match.numberOfRanges >= 5,
+           let cityRange = Range(match.range(at: 1), in: normalized),
+           let districtRange = Range(match.range(at: 2), in: normalized),
+           let roadRange = Range(match.range(at: 3), in: normalized),
+           let numberRange = Range(match.range(at: 4), in: normalized) {
+            return [
+                String(normalized[cityRange]),
+                String(normalized[districtRange]),
+                String(normalized[roadRange]),
+                String(normalized[numberRange]),
+            ].joined(separator: " ")
+        }
+
+        return normalized
     }
 
     private func memoNotificationPreview(for memo: String) -> String {

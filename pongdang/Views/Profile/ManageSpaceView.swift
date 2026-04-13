@@ -17,11 +17,16 @@ struct ManageSpaceView: View {
     @State private var localErrorMessage: String?
     @State private var isSavingName = false
     @State private var didSaveName = false
+    @State private var showingLeaveAlert = false
 
     init(space: Space) {
         self.space = space
         _spaceName = State(initialValue: space.name)
         _savedSpaceName = State(initialValue: space.name)
+    }
+
+    private var currentSpace: Space {
+        spaceService.spaces.first(where: { $0.id == space.id }) ?? space
     }
 
     var body: some View {
@@ -38,7 +43,9 @@ struct ManageSpaceView: View {
                 Section("기본 정보") {
                     HStack(spacing: 12) {
                         TextField("스페이스 이름", text: $spaceName)
+                            .disabled(!isOwner)
                             .onChange(of: spaceName) { _, _ in
+                                spaceName = InputSanitizer.sanitize(spaceName, as: .spaceName)
                                 didSaveName = false
                             }
 
@@ -51,32 +58,51 @@ struct ManageSpaceView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(saveButtonTint)
-                        .disabled(!hasPendingNameChange || isSavingName)
+                        .disabled(!isOwner || !hasPendingNameChange || isSavingName)
                     }
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
 
                     Button(isActiveSpace ? "현재 선택된 스페이스" : "현재 스페이스로 선택") {
-                        spaceService.setActiveSpace(space)
+                        spaceService.setActiveSpace(currentSpace)
                     }
                     .disabled(isActiveSpace)
+
+                    if !isOwner {
+                        Text("스페이스 이름 수정은 방장만 할 수 있습니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("초대 코드") {
-                    if inviteCode.isEmpty {
-                        Text("유효한 초대 코드를 불러오는 중입니다.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        HStack {
-                            Text(inviteCode)
-                                .font(.system(.title3, design: .rounded, weight: .bold))
-                            Spacer()
-                            Button("복사") {
-                                UIPasteboard.general.string = inviteCode
+                    if isOwner {
+                        if inviteCode.isEmpty {
+                            Text("생성된 초대 코드가 없습니다. 필요할 때 직접 생성해 주세요.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(inviteCode)
+                                        .font(.system(.title3, design: .rounded, weight: .bold))
+                                    Spacer()
+                                    Button("복사") {
+                                        UIPasteboard.general.string = inviteCode
+                                    }
+                                }
+
+                                Text("생성 후 10분 동안만 유효합니다.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                    }
 
-                    Button("초대 코드 재생성") {
-                        regenerateInviteCode()
+                        Button(inviteCode.isEmpty ? "초대 코드 생성" : "초대 코드 재생성") {
+                            regenerateInviteCode()
+                        }
+                    } else {
+                        Text("초대 코드는 방장만 확인하고 재생성할 수 있습니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -85,7 +111,7 @@ struct ManageSpaceView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(member.name)
-                                Text(member.id == space.createdBy ? "생성자" : "멤버")
+                                Text(member.id == currentSpace.createdBy ? "생성자" : "멤버")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -99,7 +125,7 @@ struct ManageSpaceView: View {
                             }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if members.count > 1 {
+                            if isOwner && members.count > 1 && member.id != currentSpace.createdBy {
                                 Button("제거", role: .destructive) {
                                     removeMember(member)
                                 }
@@ -109,17 +135,33 @@ struct ManageSpaceView: View {
                 }
 
                 Section("주의") {
-                    Text("스페이스 삭제 시 장소와 방문 기록도 함께 삭제됩니다.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    if isOwner {
+                        Text("스페이스 삭제 시 장소와 방문 기록도 함께 삭제됩니다.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
 
-                    Button("스페이스 삭제", role: .destructive) {
-                        deleteSpace()
+                        Button("스페이스 삭제", role: .destructive) {
+                            deleteSpace()
+                        }
+                    } else {
+                        Text("탈퇴하면 이 스페이스의 장소와 기록 열람이 즉시 중단됩니다.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        Button("스페이스 탈퇴", role: .destructive) {
+                            showingLeaveAlert = true
+                        }
                     }
                 }
             }
             .navigationTitle("스페이스 관리")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                syncNameFromCurrentSpace()
+            }
+            .onChange(of: currentSpace.name) { _, _ in
+                syncNameFromCurrentSpace()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("닫기") {
@@ -127,7 +169,19 @@ struct ManageSpaceView: View {
                     }
                 }
             }
-            .task(id: space.id) {
+            .alert("스페이스를 탈퇴할까요?", isPresented: $showingLeaveAlert) {
+                Button("탈퇴", role: .destructive) {
+                    leaveSpace()
+                }
+                Button("취소", role: .cancel) {
+                }
+            } message: {
+                Text("탈퇴 후에는 초대 코드를 다시 입력해야 다시 참여할 수 있습니다.")
+            }
+            .task(id: currentSpace.id) {
+                await loadInitialData()
+            }
+            .task(id: currentSpace.memberIDs.joined(separator: "|")) {
                 await loadInitialData()
             }
             .overlay {
@@ -149,7 +203,11 @@ struct ManageSpaceView: View {
     }
 
     private var isActiveSpace: Bool {
-        spaceService.activeSpace?.id == space.id
+        spaceService.activeSpace?.id == currentSpace.id
+    }
+
+    private var isOwner: Bool {
+        authService.currentUser?.id == currentSpace.createdBy
     }
 
     private var hasPendingNameChange: Bool {
@@ -184,15 +242,16 @@ struct ManageSpaceView: View {
     }
 
     private func loadInviteCode() async {
+        guard isOwner else {
+            inviteCode = ""
+            return
+        }
+
         do {
-            if let code = try await spaceService.fetchValidInviteCode(for: space.id) {
-                inviteCode = code
-            } else {
-                inviteCode = try await spaceService.generateInviteCode(
-                    for: space.id,
-                    createdBy: authService.currentUser?.id ?? space.createdBy
-                )
-            }
+            inviteCode = try await spaceService.fetchValidInviteCode(
+                for: currentSpace.id,
+                requestedBy: authService.currentUser?.id ?? ""
+            ) ?? ""
         } catch {
             presentError(error)
         }
@@ -204,8 +263,8 @@ struct ManageSpaceView: View {
             localErrorMessage = nil
             do {
                 inviteCode = try await spaceService.generateInviteCode(
-                    for: space.id,
-                    createdBy: authService.currentUser?.id ?? space.createdBy
+                    for: currentSpace.id,
+                    createdBy: authService.currentUser?.id ?? currentSpace.createdBy
                 )
             } catch {
                 presentError(error)
@@ -215,27 +274,33 @@ struct ManageSpaceView: View {
     }
 
     private func loadMembers() async {
+        let memberIDs = currentSpace.memberIDs
+
         do {
             let snapshots = try await Firestore.firestore()
                 .collection("users")
-                .whereField(FieldPath.documentID(), in: space.memberIDs)
+                .whereField(FieldPath.documentID(), in: memberIDs)
                 .getDocuments()
 
-            let usersByID = Dictionary(uniqueKeysWithValues: snapshots.documents.map { document in
-                (
-                    document.documentID,
-                    document.data()["name"] as? String ?? "알 수 없음"
+            let usersByID: [String: String] = Dictionary(uniqueKeysWithValues: snapshots.documents.map { document in
+                let documentID = document.documentID
+                let fallbackName = documentID == "guest-user" ? "익명" : "알 수 없음"
+                return (
+                    documentID,
+                    document.data()["name"] as? String ?? fallbackName
                 )
             })
 
-            members = space.memberIDs.map { memberID in
+            members = memberIDs.map { memberID in
                 MemberInfo(
                     id: memberID,
-                    name: usersByID[memberID] ?? "알 수 없음"
+                    name: usersByID[memberID] ?? (memberID == "guest-user" ? "익명" : "알 수 없음")
                 )
             }
         } catch {
-            members = space.memberIDs.map { MemberInfo(id: $0, name: "알 수 없음") }
+            members = memberIDs.map {
+                MemberInfo(id: $0, name: $0 == "guest-user" ? "익명" : "알 수 없음")
+            }
             presentError(error)
         }
     }
@@ -246,7 +311,11 @@ struct ManageSpaceView: View {
             didSaveName = false
             localErrorMessage = nil
             do {
-                try await spaceService.updateSpaceName(spaceID: space.id, name: trimmedSpaceName)
+                try await spaceService.updateSpaceName(
+                    spaceID: currentSpace.id,
+                    name: InputSanitizer.sanitize(trimmedSpaceName, as: .spaceName),
+                    requestedBy: authService.currentUser?.id ?? ""
+                )
                 savedSpaceName = trimmedSpaceName
                 spaceName = trimmedSpaceName
                 didSaveName = true
@@ -262,7 +331,11 @@ struct ManageSpaceView: View {
             isLoading = true
             localErrorMessage = nil
             do {
-                try await spaceService.removeMember(spaceID: space.id, userID: member.id)
+                try await spaceService.removeMember(
+                    spaceID: currentSpace.id,
+                    userID: member.id,
+                    requestedBy: authService.currentUser?.id ?? ""
+                )
 
                 if member.id == authService.currentUser?.id {
                     dismiss()
@@ -281,7 +354,27 @@ struct ManageSpaceView: View {
             isLoading = true
             localErrorMessage = nil
             do {
-                try await spaceService.deleteSpace(spaceID: space.id)
+                try await spaceService.deleteSpace(
+                    spaceID: currentSpace.id,
+                    requestedBy: authService.currentUser?.id ?? ""
+                )
+                dismiss()
+            } catch {
+                presentError(error)
+            }
+            isLoading = false
+        }
+    }
+
+    private func leaveSpace() {
+        Task {
+            isLoading = true
+            localErrorMessage = nil
+            do {
+                try await spaceService.leaveSpace(
+                    spaceID: currentSpace.id,
+                    userID: authService.currentUser?.id ?? ""
+                )
                 dismiss()
             } catch {
                 presentError(error)
@@ -294,6 +387,16 @@ struct ManageSpaceView: View {
         let message = error.localizedDescription
         spaceService.errorMessage = message
         localErrorMessage = message
+    }
+
+    private func syncNameFromCurrentSpace() {
+        let currentName = currentSpace.name
+
+        if !hasPendingNameChange || spaceName == savedSpaceName {
+            spaceName = currentName
+        }
+
+        savedSpaceName = currentName
     }
 }
 

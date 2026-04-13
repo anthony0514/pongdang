@@ -1,7 +1,9 @@
 import Combine
 import FirebaseCore
+import FirebaseMessaging
 import GoogleSignIn
 import SwiftUI
+import UIKit
 import UserNotifications
 
 enum AppPreferences {
@@ -18,6 +20,7 @@ enum LocalNotificationManager {
 
         switch settings.authorizationStatus {
         case .authorized, .provisional, .ephemeral:
+            registerForRemoteNotifications()
             return true
         case .notDetermined:
             return await requestAuthorization()
@@ -56,11 +59,17 @@ enum LocalNotificationManager {
     }
 
     private static func requestAuthorization() async -> Bool {
-        await withCheckedContinuation { continuation in
+        let granted = await withCheckedContinuation { continuation in
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
                 continuation.resume(returning: granted)
             }
         }
+
+        if granted {
+            registerForRemoteNotifications()
+        }
+
+        return granted
     }
 
     private static func add(_ request: UNNotificationRequest) async throws {
@@ -74,10 +83,72 @@ enum LocalNotificationManager {
             }
         }
     }
+
+    @MainActor
+    private static func registerForRemoteNotifications() {
+        UIApplication.shared.registerForRemoteNotifications()
+    }
+}
+
+final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        Messaging.messaging().delegate = self
+        return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Messaging.messaging().apnsToken = deviceToken
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("APNs registration failed: \(error.localizedDescription)")
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Messaging.messaging().appDidReceiveMessage(userInfo)
+        completionHandler(.noData)
+    }
+
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken, !fcmToken.isEmpty else { return }
+
+        NotificationCenter.default.post(
+            name: .fcmRegistrationTokenDidUpdate,
+            object: nil,
+            userInfo: ["token": fcmToken]
+        )
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        Messaging.messaging().appDidReceiveMessage(notification.request.content.userInfo)
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Messaging.messaging().appDidReceiveMessage(response.notification.request.content.userInfo)
+        completionHandler()
+    }
 }
 
 @main
 struct pongdangApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var authService = AuthService()
     @StateObject private var pendingShareStore = PendingShareStore()
     @StateObject private var appLocationStore = AppLocationStore()

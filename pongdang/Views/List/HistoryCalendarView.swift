@@ -64,6 +64,8 @@ struct HistoryCalendarView: View {
                                             )
                                         } label: {
                                             GroupedVisitRecordRow(group: group)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .contentShape(Rectangle())
                                         }
                                         .buttonStyle(.plain)
                                     } else {
@@ -200,10 +202,10 @@ struct HistoryCalendarView: View {
                 if let name = snapshot.data()?["name"] as? String, !name.isEmpty {
                     authorNamesByUserID[userID] = name
                 } else {
-                    authorNamesByUserID[userID] = "알 수 없음"
+                    authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
                 }
             } catch {
-                authorNamesByUserID[userID] = "알 수 없음"
+                authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
             }
         }
     }
@@ -243,6 +245,8 @@ private struct GroupedVisitRecordRow: View {
             }
         }
         .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private static let dateFormatter: DateFormatter = {

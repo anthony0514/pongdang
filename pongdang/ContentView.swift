@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var appLocationStore: AppLocationStore
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var spaceService = SpaceService()
     @StateObject private var navigationState = AppNavigationState()
 
@@ -23,6 +24,13 @@ struct ContentView: View {
                 .environmentObject(navigationState)
                 .onAppear {
                     spaceService.fetchSpaces(for: authService.currentUser!.id)
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active, let userID = authService.currentUser?.id else { return }
+                    spaceService.fetchSpaces(for: userID)
+                    Task {
+                        await spaceService.refreshSpacesIfPossible()
+                    }
                 }
         }
     }

@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseFirestore
+import CoreLocation
 
 struct PlaceListView: View {
     private enum StatusFilter: String, CaseIterable, Identifiable {
@@ -13,6 +14,8 @@ struct PlaceListView: View {
     private enum SortOption: String, CaseIterable, Identifiable {
         case newest = "최신 순"
         case oldest = "오래된 순"
+        case distance = "가까운 순"
+        case name = "이름순"
 
         var id: String { rawValue }
     }
@@ -20,6 +23,7 @@ struct PlaceListView: View {
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var navigationState: AppNavigationState
+    @EnvironmentObject var appLocationStore: AppLocationStore
 
     @StateObject private var viewModel = MapViewModel()
     @StateObject private var placeService = PlaceService()
@@ -127,6 +131,9 @@ struct PlaceListView: View {
                 .foregroundStyle(.secondary)
 
             TextField("장소 검색", text: $searchText)
+                .onChange(of: searchText) { _, newValue in
+                    searchText = InputSanitizer.sanitize(newValue, as: .search)
+                }
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
 
@@ -167,6 +174,7 @@ struct PlaceListView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .padding(.leading, 8)
 
                 Spacer()
 
@@ -179,7 +187,7 @@ struct PlaceListView: View {
                 .pickerStyle(.menu)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: 108, alignment: .trailing)
+                .frame(minWidth: 118, alignment: .trailing)
             }
             .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -210,7 +218,7 @@ struct PlaceListView: View {
                 .padding(.horizontal, 16)
             } else {
                 List {
-                    ForEach(filteredPlaces) { place in
+                    ForEach(Array(filteredPlaces.enumerated()), id: \.element.id) { index, place in
                         Button {
                             navigationState.showPlaceOnMap(
                                 placeID: place.id,
@@ -219,20 +227,26 @@ struct PlaceListView: View {
                             )
                         } label: {
                             PlaceListRow(place: place)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("삭제", role: .destructive) {
-                                placeToDelete = place
-                            }
-                            .tint(.red)
+                            if canManage(place) {
+                                Button("삭제", role: .destructive) {
+                                    placeToDelete = place
+                                }
+                                .tint(.red)
 
-                            Button("수정") {
-                                placeToEdit = place
+                                Button("수정") {
+                                    placeToEdit = place
+                                }
+                                .tint(Color(hex: "2F7FB8"))
                             }
-                            .tint(Color(hex: "2F7FB8"))
                         }
                         .listRowBackground(Color(.secondarySystemGroupedBackground))
+                        .listRowSeparator(index == filteredPlaces.count - 1 ? .hidden : .visible)
+                        .listSectionSeparator(.hidden, edges: index == 0 ? .top : [])
                     }
                 }
                 .listStyle(.plain)
@@ -274,7 +288,33 @@ struct PlaceListView: View {
             return searchFiltered.sorted { $0.addedAt > $1.addedAt }
         case .oldest:
             return searchFiltered.sorted { $0.addedAt < $1.addedAt }
+        case .distance:
+            guard let userLocation = appLocationStore.currentCoordinate else {
+                return searchFiltered.sorted { $0.addedAt > $1.addedAt }
+            }
+
+            let currentLocation = CLLocation(latitude: userLocation.latitude, longitude: userLocation.longitude)
+            return searchFiltered.sorted { lhs, rhs in
+                let lhsDistance = CLLocation(latitude: lhs.latitude, longitude: lhs.longitude).distance(from: currentLocation)
+                let rhsDistance = CLLocation(latitude: rhs.latitude, longitude: rhs.longitude).distance(from: currentLocation)
+
+                if lhsDistance == rhsDistance {
+                    return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                }
+
+                return lhsDistance < rhsDistance
+            }
+        case .name:
+            return searchFiltered.sorted {
+                $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
         }
+    }
+
+    private func canManage(_ place: Place) -> Bool {
+        let currentUserID = authService.currentUser?.id
+        let ownerID = spaceService.activeSpace?.createdBy
+        return currentUserID == place.addedBy || currentUserID == ownerID
     }
 
     private var emptyStateDescription: String {
@@ -306,7 +346,10 @@ struct PlaceListView: View {
     private func deletePlace(_ place: Place) {
         Task {
             do {
-                try await placeService.deletePlace(id: place.id)
+                try await placeService.deletePlace(
+                    id: place.id,
+                    requestedBy: authService.currentUser?.id ?? ""
+                )
                 placeToDelete = nil
             } catch {
             }
@@ -351,7 +394,7 @@ struct PlaceListView: View {
                     let fields = [
                         place.name,
                         place.address,
-                        place.category.rawValue,
+                        place.category.displayName,
                         place.memo ?? "",
                         place.tags.joined(separator: " "),
                         visitRecordTextByPlaceID[place.id] ?? ""
@@ -398,13 +441,13 @@ private struct PlaceListRow: View {
                     .font(.headline)
                     .foregroundStyle(.primary)
 
-                Text(place.address.isEmpty ? place.category.rawValue : place.address)
+                Text(place.address.isEmpty ? place.category.displayName : place.address)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
                 HStack(spacing: 8) {
-                    Text(place.category.rawValue)
+                    Text(place.category.displayName)
                     Text(place.isVisited ? "방문 완료" : "미방문")
                         .foregroundStyle(place.isVisited ? .green : .pink)
                 }
@@ -413,6 +456,7 @@ private struct PlaceListRow: View {
             }
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

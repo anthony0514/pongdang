@@ -325,9 +325,14 @@ final class MapViewModel: NSObject, ObservableObject {
         guard !trimmed.isEmpty else { return [] }
 
         let floorStripped = sanitizedAddressForSearch(trimmed)
+        let coreRoadAddress = extractedRoadAddress(from: floorStripped)
         var candidates: [String] = []
 
-        if !floorStripped.isEmpty {
+        if !coreRoadAddress.isEmpty {
+            candidates.append(coreRoadAddress)
+        }
+
+        if !floorStripped.isEmpty && !candidates.contains(floorStripped) {
             candidates.append(floorStripped)
         }
 
@@ -349,9 +354,53 @@ final class MapViewModel: NSObject, ObservableObject {
     private func sanitizedAddressForSearch(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: #"\s*((지하|지상)\s*)?([Bb]\s*)?\d+\s*(층|f|F)\s*$"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\s*[Bb]\s*\d+\s*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+\d+\s*호\s*$"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func extractedRoadAddress(from value: String) -> String {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+
+        guard !normalized.isEmpty else { return "" }
+
+        let fullPattern = #"((?:[가-힣]+도|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+)?((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        if let regex = try? NSRegularExpression(pattern: fullPattern),
+           let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+           match.numberOfRanges >= 6,
+           let cityRange = Range(match.range(at: 2), in: normalized),
+           let districtRange = Range(match.range(at: 3), in: normalized),
+           let roadRange = Range(match.range(at: 4), in: normalized),
+           let numberRange = Range(match.range(at: 5), in: normalized) {
+            return [
+                String(normalized[cityRange]),
+                String(normalized[districtRange]),
+                String(normalized[roadRange]),
+                String(normalized[numberRange]),
+            ].joined(separator: " ")
+        }
+
+        let compactPattern = #"((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        if let regex = try? NSRegularExpression(pattern: compactPattern),
+           let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+           match.numberOfRanges >= 5,
+           let cityRange = Range(match.range(at: 1), in: normalized),
+           let districtRange = Range(match.range(at: 2), in: normalized),
+           let roadRange = Range(match.range(at: 3), in: normalized),
+           let numberRange = Range(match.range(at: 4), in: normalized) {
+            return [
+                String(normalized[cityRange]),
+                String(normalized[districtRange]),
+                String(normalized[roadRange]),
+                String(normalized[numberRange]),
+            ].joined(separator: " ")
+        }
+
+        return normalized
     }
 
     private func preferredAddress(from mapItem: MKMapItem?) -> String? {

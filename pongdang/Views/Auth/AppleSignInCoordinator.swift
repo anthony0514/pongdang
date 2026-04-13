@@ -109,20 +109,25 @@ extension AppleSignInCoordinator: ASAuthorizationControllerPresentationContextPr
             return presentationAnchor
         }
 
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
+        let connectedWindowScenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+
+        if let window = connectedWindowScenes
             .flatMap(\.windows)
             .first(where: \.isKeyWindow) {
             return window
         }
 
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
+        if let window = connectedWindowScenes
             .flatMap(\.windows)
             .first {
             return window
         }
 
-        return ASPresentationAnchor()
+        if let windowScene = connectedWindowScenes.first {
+            return ASPresentationAnchor(windowScene: windowScene)
+        }
+
+        preconditionFailure("Unable to locate a UIWindowScene for Apple Sign In presentation.")
     }
 }

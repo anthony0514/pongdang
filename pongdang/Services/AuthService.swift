@@ -2,6 +2,11 @@ import Foundation
 import Combine
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseMessaging
+
+extension Notification.Name {
+    static let fcmRegistrationTokenDidUpdate = Notification.Name("fcmRegistrationTokenDidUpdate")
+}
 
 @MainActor
 class AuthService: ObservableObject {
@@ -14,6 +19,7 @@ class AuthService: ObservableObject {
     @Published var errorMessage: String?
 
     private var authStateHandle: AuthStateDidChangeListenerHandle?
+    private var fcmTokenObserver: NSObjectProtocol?
     private let db = Firestore.firestore()
 
     init() {
@@ -28,11 +34,32 @@ class AuthService: ObservableObject {
                 self?.hasResolvedAuthState = true
             }
         }
+
+        fcmTokenObserver = NotificationCenter.default.addObserver(
+            forName: .fcmRegistrationTokenDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard
+                let self,
+                let token = notification.userInfo?["token"] as? String,
+                !token.isEmpty
+            else {
+                return
+            }
+
+            Task { @MainActor in
+                await self.handleFCMTokenUpdate(token)
+            }
+        }
     }
 
     deinit {
         if let handle = authStateHandle {
             Auth.auth().removeStateDidChangeListener(handle)
+        }
+        if let fcmTokenObserver {
+            NotificationCenter.default.removeObserver(fcmTokenObserver)
         }
     }
 
@@ -45,11 +72,15 @@ class AuthService: ObservableObject {
         firebaseUser = nil
         currentUser = AppUser(
             id: Self.guestUserID,
-            name: "게스트",
+            name: "익명",
             profileImageURL: nil,
             homeAddress: nil,
             homeLatitude: nil,
             homeLongitude: nil,
+            receivesNewMemberNotifications: true,
+            receivesNewPlaceNotifications: true,
+            receivesNewMemoNotifications: true,
+            fcmTokens: [],
             createdAt: Date()
         )
         hasResolvedAuthState = true
@@ -111,8 +142,11 @@ class AuthService: ObservableObject {
 
     func updateDisplayName(userID: String, name: String) async throws {
         if isGuestUser {
-            currentUser?.name = name
-            return
+            throw NSError(
+                domain: "AuthService",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "게스트 모드에서는 이름을 변경할 수 없습니다."]
+            )
         }
 
         try await db.collection("users").document(userID).updateData([
@@ -120,6 +154,28 @@ class AuthService: ObservableObject {
         ])
 
         currentUser?.name = name
+    }
+
+    func updateNotificationPreferences(newMember: Bool, newPlace: Bool, newMemo: Bool) async throws {
+        if isGuestUser {
+            throw NSError(
+                domain: "AuthService",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "게스트 모드에서는 알림 설정을 변경할 수 없습니다."]
+            )
+        }
+
+        guard let userID = currentUser?.id else { return }
+
+        try await db.collection("users").document(userID).updateData([
+            "receivesNewMemberNotifications": newMember,
+            "receivesNewPlaceNotifications": newPlace,
+            "receivesNewMemoNotifications": newMemo
+        ])
+
+        currentUser?.receivesNewMemberNotifications = newMember
+        currentUser?.receivesNewPlaceNotifications = newPlace
+        currentUser?.receivesNewMemoNotifications = newMemo
     }
 
     func deleteCurrentAccount() async throws {
@@ -153,6 +209,7 @@ class AuthService: ObservableObject {
 
                 for placeDocument in placesSnapshot.documents {
                     let recordSnapshot = try await db.collection("visitRecords")
+                        .whereField("spaceID", isEqualTo: spaceID)
                         .whereField("placeID", isEqualTo: placeDocument.documentID)
                         .getDocuments()
 
@@ -182,11 +239,17 @@ class AuthService: ObservableObject {
                 let data = placeDocument.data()
                 let spaceID = data["spaceID"] as? String
 
-                if let spaceID, createdSpaceIDs.contains(spaceID) {
+                guard let spaceID else {
+                    try await placeDocument.reference.delete()
+                    continue
+                }
+
+                if createdSpaceIDs.contains(spaceID) {
                     continue
                 }
 
                 let recordSnapshot = try await db.collection("visitRecords")
+                    .whereField("spaceID", isEqualTo: spaceID)
                     .whereField("placeID", isEqualTo: placeDocument.documentID)
                     .getDocuments()
 
@@ -212,19 +275,24 @@ class AuthService: ObservableObject {
                 ])
             }
 
-            let visitRecordsSnapshot = try await db.collection("visitRecords")
-                .whereField("createdBy", isEqualTo: userID)
-                .getDocuments()
+            for spaceDocument in spacesSnapshot.documents {
+                let spaceID = spaceDocument.documentID
 
-            for recordDocument in visitRecordsSnapshot.documents {
-                let data = recordDocument.data()
-                let spaceID = data["spaceID"] as? String
-
-                if let spaceID, createdSpaceIDs.contains(spaceID) {
+                if createdSpaceIDs.contains(spaceID) {
                     continue
                 }
 
-                try await recordDocument.reference.delete()
+                let visitRecordsSnapshot = try await db.collection("visitRecords")
+                    .whereField("spaceID", isEqualTo: spaceID)
+                    .getDocuments()
+
+                for recordDocument in visitRecordsSnapshot.documents {
+                    let data = recordDocument.data()
+                    let createdBy = data["createdBy"] as? String
+
+                    guard createdBy == userID else { continue }
+                    try await recordDocument.reference.delete()
+                }
             }
 
             try await db.collection("users").document(userID).delete()
@@ -264,6 +332,8 @@ class AuthService: ObservableObject {
             let snapshot = try await ref.getDocument()
             if snapshot.exists, let data = try? snapshot.data(as: AppUser.self) {
                 self.currentUser = data
+                await backfillNotificationFieldsIfNeeded(for: data)
+                await syncCurrentFCMTokenIfNeeded(for: uid)
             } else {
                 let newUser = AppUser(
                     id: uid,
@@ -272,10 +342,61 @@ class AuthService: ObservableObject {
                     homeAddress: nil,
                     homeLatitude: nil,
                     homeLongitude: nil,
+                    receivesNewMemberNotifications: true,
+                    receivesNewPlaceNotifications: true,
+                    receivesNewMemoNotifications: true,
+                    fcmTokens: [],
                     createdAt: Date()
                 )
                 try? ref.setData(from: newUser)
                 self.currentUser = newUser
+                await syncCurrentFCMTokenIfNeeded(for: uid)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func backfillNotificationFieldsIfNeeded(for user: AppUser) async {
+        guard !isGuestUser else { return }
+
+        var patch: [String: Any] = [:]
+        patch["receivesNewMemberNotifications"] = user.receivesNewMemberNotifications
+        patch["receivesNewPlaceNotifications"] = user.receivesNewPlaceNotifications
+        patch["receivesNewMemoNotifications"] = user.receivesNewMemoNotifications
+
+        if user.fcmTokens.isEmpty,
+           let currentToken = Messaging.messaging().fcmToken,
+           !currentToken.isEmpty {
+            patch["fcmTokens"] = [currentToken]
+        }
+
+        try? await db.collection("users").document(user.id).setData(patch, merge: true)
+
+        if let currentToken = patch["fcmTokens"] as? [String] {
+            currentUser?.fcmTokens = currentToken
+        }
+    }
+
+    private func syncCurrentFCMTokenIfNeeded(for userID: String) async {
+        guard !isGuestUser else { return }
+        guard let token = Messaging.messaging().fcmToken, !token.isEmpty else { return }
+        await syncFCMToken(token, for: userID)
+    }
+
+    private func handleFCMTokenUpdate(_ token: String) async {
+        guard let userID = currentUser?.id, !isGuestUser else { return }
+        await syncFCMToken(token, for: userID)
+    }
+
+    private func syncFCMToken(_ token: String, for userID: String) async {
+        do {
+            try await db.collection("users").document(userID).updateData([
+                "fcmTokens": FieldValue.arrayUnion([token])
+            ])
+
+            if currentUser?.fcmTokens.contains(token) != true {
+                currentUser?.fcmTokens.append(token)
             }
         } catch {
             errorMessage = error.localizedDescription

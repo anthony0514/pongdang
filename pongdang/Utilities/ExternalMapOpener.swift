@@ -5,6 +5,8 @@ enum ExternalMapOpener {
         let query = place.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
 
         switch preferredApp {
+        case .apple:
+            return URL(string: "maps://?q=\(query)&ll=\(place.latitude),\(place.longitude)")
         case .kakao:
             return URL(string: "kakaomap://search?q=\(query)&p=\(place.latitude),\(place.longitude)")
         case .naver:
@@ -14,6 +16,7 @@ enum ExternalMapOpener {
 }
 
 enum PreferredMapApp {
+    case apple
     case kakao
     case naver
 }
