@@ -47,25 +47,25 @@ extension PlaceCategory {
     var accentColor: Color {
         switch self {
         case .restaurant:
-            return Color(hex: "F28C52")
+            return Color(hex: "FF6B35")
         case .bar:
-            return Color(hex: "A8553E")
+            return Color(hex: "7A3E9D")
         case .cafe:
-            return Color(hex: "B07A4F")
+            return Color(hex: "C08A3E")
         case .nature:
-            return Color(hex: "58B368")
+            return Color(hex: "2FBF71")
         case .culture:
-            return Color(hex: "8B7CF6")
+            return Color(hex: "635BFF")
         case .activity:
-            return Color(hex: "2FA7D8")
+            return Color(hex: "00A6C7")
         case .leisure:
-            return Color(hex: "D96C8E")
+            return Color(hex: "E64980")
         case .shopping:
-            return Color(hex: "E8885A")
+            return Color(hex: "FFB000")
         case .rest:
-            return Color(hex: "6CA6A1")
+            return Color(hex: "4C9E8E")
         case .other:
-            return Color(hex: "7D8A99")
+            return Color(hex: "6E7C91")
         }
     }
 }

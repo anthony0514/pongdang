@@ -63,13 +63,13 @@ struct HistoryCalendarView: View {
                                                 compactDetailSheet: true
                                             )
                                         } label: {
-                                            GroupedVisitRecordRow(group: group)
+                                            GroupedVisitRecordRow(group: group, place: place)
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                                 .contentShape(Rectangle())
                                         }
                                         .buttonStyle(.plain)
                                     } else {
-                                        GroupedVisitRecordRow(group: group)
+                                        GroupedVisitRecordRow(group: group, place: nil)
                                     }
                                 }
                             }
@@ -225,16 +225,23 @@ struct HistoryCalendarView: View {
 
 private struct GroupedVisitRecordRow: View {
     let group: HistoryCalendarView.GroupedVisitRecord
+    let place: Place?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-
             VStack(alignment: .leading, spacing: 6) {
-                Text(group.placeName)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                HStack(alignment: .center, spacing: 8) {
+                    categoryIcon
+
+                    Text(group.placeName)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
 
                 HStack(spacing: 8) {
                     Text(Self.dateFormatter.string(from: group.latestVisitedAt))
@@ -247,6 +254,18 @@ private struct GroupedVisitRecordRow: View {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    private var categoryIcon: some View {
+        ZStack {
+            Circle()
+                .fill((place?.category.accentColor ?? Color(.systemGray3)).opacity(0.16))
+                .frame(width: 34, height: 34)
+
+            Image(systemName: place?.category.systemImageName ?? "mappin.and.ellipse")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(place?.category.accentColor ?? Color(.systemGray))
+        }
     }
 
     private static let dateFormatter: DateFormatter = {

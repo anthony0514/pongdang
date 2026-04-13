@@ -18,6 +18,7 @@ struct SpaceListView: View {
                 SpaceRow(
                     space: space,
                     isActive: space.id == spaceService.activeSpace?.id,
+                    isFavorite: spaceService.isFavoriteSpace(space),
                     onManage: {
                         managingSpace = space
                     },
@@ -172,6 +173,7 @@ struct SpaceListView: View {
 private struct SpaceRow: View {
     let space: Space
     let isActive: Bool
+    let isFavorite: Bool
     let onManage: () -> Void
     let onSelect: () -> Void
 
@@ -180,7 +182,16 @@ private struct SpaceRow: View {
             Button(action: onSelect) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(space.name)
+                        HStack(spacing: 6) {
+                            if isFavorite {
+                                Image(systemName: "star.fill")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(Color(hex: "F4B400"))
+                            }
+
+                            Text(space.name)
+                        }
+
                         Text("멤버 \(space.memberIDs.count)명")
                             .font(.caption)
                             .foregroundColor(.secondary)

@@ -29,8 +29,10 @@ struct PlaceDetailView: View {
     @AppStorage("preferredExternalMapApp") private var preferredExternalMapAppRawValue = ExternalMapApp.kakao.rawValue
 
     @State private var showingEdit = false
+    @State private var showingCopyToSpace = false
     @State private var showingDeleteAlert = false
     @State private var showingVisitRecordForm = false
+    @State private var selectedCategory: PlaceCategory
     @State private var addedByName = "불러오는 중..."
     @State private var visitRecords: [VisitRecord] = []
     @State private var authorNamesByUserID: [String: String] = [:]
@@ -43,16 +45,39 @@ struct PlaceDetailView: View {
     let place: Place
     let showsFloatingWriteButton: Bool
 
+    init(place: Place, showsFloatingWriteButton: Bool) {
+        self.place = place
+        self.showsFloatingWriteButton = showsFloatingWriteButton
+        _selectedCategory = State(initialValue: place.category)
+    }
+
     var body: some View {
         NavigationStack {
             detailContent
             .background(Color.clear)
-            .navigationTitle(place.name)
+            .navigationTitle("")
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    titleView
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if canManagePlace {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
+                ToolbarItem(placement: .topBarLeading) {
+                    categoryMenuButton
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(preferredExternalMapApp.title + "에서 열기") {
+                            openInPreferredMapApp()
+                        }
+
+                        if canManagePlace {
+                            Button("다른 스페이스에 공유") {
+                                showingCopyToSpace = true
+                            }
+
                             Button("편집") {
                                 showingEdit = true
                             }
@@ -60,9 +85,9 @@ struct PlaceDetailView: View {
                             Button("삭제", role: .destructive) {
                                 showingDeleteAlert = true
                             }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
                         }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
@@ -78,6 +103,11 @@ struct PlaceDetailView: View {
                     .environmentObject(spaceService)
                     .environmentObject(authService)
             }
+            .sheet(isPresented: $showingCopyToSpace) {
+                CopyPlaceToSpaceView(place: place)
+                    .environmentObject(spaceService)
+                    .environmentObject(authService)
+            }
             .sheet(isPresented: $showingVisitRecordForm) {
                 VisitRecordFormView(place: place, existingRecord: nil)
                     .environmentObject(authService)
@@ -88,6 +118,9 @@ struct PlaceDetailView: View {
             }
             .task(id: place.addedBy) {
                 await loadAddedByName()
+            }
+            .onChange(of: place.category) { _, newCategory in
+                selectedCategory = newCategory
             }
             .task(id: place.id) {
                 listenForVisitRecords()
@@ -149,16 +182,17 @@ struct PlaceDetailView: View {
 
     private var detailContent: some View {
         List {
-            Section {
-                VStack(alignment: .leading, spacing: 16) {
-                    headerSection
-                    tagSection
-                    memoSection
+            if hasSupplementaryContent {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        memoSection
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listSectionSeparator(.visible, edges: .bottom)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 8)
-                .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
-                .listRowSeparator(.hidden)
             }
 
             Section {
@@ -167,11 +201,13 @@ struct PlaceDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.visible, edges: .top)
                 } else if visitRecords.isEmpty {
                     Text("아직 남겨진 방문 기록이 없습니다.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.visible, edges: .top)
                 } else {
                     ForEach(visitRecords) { record in
                         Button {
@@ -205,55 +241,45 @@ struct PlaceDetailView: View {
         .listStyle(.plain)
     }
 
-    private var headerSection: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text(place.category.displayName)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color(.secondarySystemBackground))
-                .clipShape(Capsule())
-
-            Text(visitStatusText)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(visitStatusColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(visitStatusBackground)
-                .clipShape(Capsule())
-
-            Spacer()
-
-            Button(action: openInPreferredMapApp) {
-                Image(systemName: "link")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(width: 40, height: 40)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(preferredExternalMapApp.title)에서 열기")
-        }
+    private var hasSupplementaryContent: Bool {
+        (place.memo?.isEmpty) == false
     }
 
-    @ViewBuilder
-    private var tagSection: some View {
-        if !place.tags.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(place.tags, id: \.self) { tag in
-                        Text(tag)
-                            .font(.subheadline)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(.secondarySystemBackground))
-                            .clipShape(Capsule())
+    private var titleView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: visitRecords.isEmpty ? "circle" : "checkmark.circle.fill")
+                .foregroundStyle(visitRecords.isEmpty ? Color(.secondaryLabel) : Color.green)
+
+            Text(place.name)
+                .font(.headline)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var categoryMenuButton: some View {
+        Menu {
+            ForEach(PlaceCategory.allCases, id: \.self) { category in
+                Button {
+                    updateCategory(to: category)
+                } label: {
+                    HStack {
+                        Text(category.displayName)
+                        if category == selectedCategory {
+                            Image(systemName: "checkmark")
+                        }
                     }
                 }
+                .disabled(!canManagePlace || category == selectedCategory)
             }
+        } label: {
+            Image(systemName: selectedCategory.systemImageName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(selectedCategory.accentColor)
+                .frame(width: 36, height: 36)
         }
+        .accessibilityLabel("카테고리")
     }
 
     @ViewBuilder
@@ -371,20 +397,36 @@ struct PlaceDetailView: View {
         }
     }
 
+    private func updateCategory(to category: PlaceCategory) {
+        guard canManagePlace, category != selectedCategory else { return }
+
+        Task {
+            do {
+                try await placeService.updatePlace(
+                    Place(
+                        id: place.id,
+                        spaceID: place.spaceID,
+                        name: place.name,
+                        address: place.address,
+                        latitude: place.latitude,
+                        longitude: place.longitude,
+                        category: category,
+                        memo: place.memo,
+                        sourceURL: place.sourceURL,
+                        addedBy: place.addedBy,
+                        addedAt: place.addedAt,
+                        isVisited: place.isVisited
+                    ),
+                    requestedBy: authService.currentUser?.id ?? ""
+                )
+                selectedCategory = category
+            } catch {
+            }
+        }
+    }
+
     private var preferredExternalMapApp: ExternalMapApp {
         ExternalMapApp(rawValue: preferredExternalMapAppRawValue) ?? .kakao
-    }
-
-    private var visitStatusText: String {
-        visitRecords.isEmpty ? "미방문" : "방문 완료"
-    }
-
-    private var visitStatusColor: Color {
-        visitRecords.isEmpty ? .gray : .green
-    }
-
-    private var visitStatusBackground: Color {
-        visitStatusColor.opacity(0.14)
     }
 
     private func openInPreferredMapApp() {

@@ -19,10 +19,9 @@ struct AddPlaceView: View {
     @State private var latitude: Double = 37.5665
     @State private var longitude: Double = 126.9780
     @State private var selectedCategory: PlaceCategory = .restaurant
-    @State private var tagInput = ""
-    @State private var tags: [String] = []
     @State private var memo = ""
     @State private var sourceURL: String? = nil
+    @State private var selectedSpaceID: String = ""
     @State private var isResolvingCoordinate = false
     @State private var localErrorMessage: String?
     @State private var isSubmitting = false
@@ -45,6 +44,22 @@ struct AddPlaceView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if !isEditing {
+                    Section("스페이스") {
+                        Picker("저장할 스페이스", selection: $selectedSpaceID) {
+                            ForEach(spaceService.spaces) { space in
+                                Text(space.name).tag(space.id)
+                            }
+                        }
+
+                        if let selectedSpace = selectedSpace {
+                            Text("\(selectedSpace.name)에 장소를 추가합니다.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section("기본 정보") {
                     TextField("장소 이름", text: $name)
                         .onChange(of: name) { _, newValue in
@@ -66,41 +81,6 @@ struct AddPlaceView: View {
                     Picker("카테고리", selection: $selectedCategory) {
                         ForEach(PlaceCategory.allCases, id: \.self) { category in
                             Text(category.displayName).tag(category)
-                        }
-                    }
-                }
-
-                Section("태그") {
-                    HStack {
-                        TextField("태그 입력 후 Return", text: $tagInput)
-                            .onChange(of: tagInput) { _, newValue in
-                                tagInput = InputSanitizer.sanitize(newValue, as: .tag)
-                            }
-                            .onSubmit(addTag)
-                    }
-
-                    if !tags.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(tags, id: \.self) { tag in
-                                    Button {
-                                        removeTag(tag)
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Text(tag)
-                                            Text("×")
-                                        }
-                                        .font(.subheadline)
-                                        .foregroundStyle(.primary)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(Color(.secondarySystemBackground))
-                                        .clipShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.vertical, 4)
                         }
                     }
                 }
@@ -169,7 +149,6 @@ struct AddPlaceView: View {
                     latitude = placeToEdit.latitude
                     longitude = placeToEdit.longitude
                     selectedCategory = placeToEdit.category
-                    tags = placeToEdit.tags
                     memo = placeToEdit.memo ?? ""
                     sourceURL = placeToEdit.sourceURL
                     return
@@ -191,6 +170,18 @@ struct AddPlaceView: View {
                 if let initialSourceURL, !initialSourceURL.isEmpty {
                     sourceURL = initialSourceURL
                 }
+
+                initializeSelectedSpaceIfNeeded()
+            }
+            .onChange(of: spaceService.spaces) { _, _ in
+                initializeSelectedSpaceIfNeeded()
+            }
+            .onChange(of: spaceService.activeSpace?.id) { _, newSpaceID in
+                guard !isEditing else { return }
+                guard selectedSpaceID.isEmpty || !spaceService.spaces.contains(where: { $0.id == selectedSpaceID }) else { return }
+                if let newSpaceID {
+                    selectedSpaceID = newSpaceID
+                }
             }
             .overlay {
                 if placeService.isLoading || isResolvingCoordinate {
@@ -206,29 +197,16 @@ struct AddPlaceView: View {
         }
     }
 
-    private func addTag() {
-        let trimmed = InputSanitizer.sanitize(
-            tagInput.trimmingCharacters(in: .whitespacesAndNewlines),
-            as: .tag
-        )
-        guard !trimmed.isEmpty, !tags.contains(trimmed) else {
-            tagInput = ""
-            return
-        }
-
-        tags.append(trimmed)
-        tagInput = ""
-    }
-
-    private func removeTag(_ tag: String) {
-        tags.removeAll { $0 == tag }
+    private var selectedSpace: Space? {
+        spaceService.spaces.first(where: { $0.id == selectedSpaceID })
     }
 
     private func savePlace() {
         guard
-            let spaceID = placeToEdit?.spaceID ?? spaceService.activeSpace?.id,
+            let spaceID = resolvedSpaceIDForSave(),
             let userID = authService.currentUser?.id
         else {
+            localErrorMessage = "저장할 스페이스를 선택해 주세요"
             return
         }
 
@@ -255,7 +233,6 @@ struct AddPlaceView: View {
             latitude: latitude,
             longitude: longitude,
             category: selectedCategory,
-            tags: tags,
             memo: trimmedMemo.isEmpty ? nil : trimmedMemo,
             sourceURL: sourceURL,
             addedBy: placeToEdit?.addedBy ?? userID,
@@ -282,7 +259,6 @@ struct AddPlaceView: View {
                             latitude: finalCoordinate.latitude,
                             longitude: finalCoordinate.longitude,
                             category: place.category,
-                            tags: place.tags,
                             memo: place.memo,
                             sourceURL: place.sourceURL,
                             addedBy: place.addedBy,
@@ -301,7 +277,6 @@ struct AddPlaceView: View {
                             latitude: finalCoordinate.latitude,
                             longitude: finalCoordinate.longitude,
                             category: place.category,
-                            tags: place.tags,
                             memo: place.memo,
                             sourceURL: place.sourceURL,
                             addedBy: place.addedBy,
@@ -325,6 +300,28 @@ struct AddPlaceView: View {
             }
             isSubmitting = false
         }
+    }
+
+    private func initializeSelectedSpaceIfNeeded() {
+        guard !isEditing else { return }
+        guard selectedSpaceID.isEmpty || !spaceService.spaces.contains(where: { $0.id == selectedSpaceID }) else { return }
+
+        if let activeSpaceID = spaceService.activeSpace?.id,
+           spaceService.spaces.contains(where: { $0.id == activeSpaceID }) {
+            selectedSpaceID = activeSpaceID
+        } else if let firstSpaceID = spaceService.spaces.first?.id {
+            selectedSpaceID = firstSpaceID
+        }
+    }
+
+    private func resolvedSpaceIDForSave() -> String? {
+        if let existingSpaceID = placeToEdit?.spaceID {
+            return existingSpaceID
+        }
+
+        let trimmed = selectedSpaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private func resolvedCoordinateForSave(address: String) async -> CLLocationCoordinate2D? {

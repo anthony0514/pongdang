@@ -10,6 +10,7 @@ final class SpaceService: ObservableObject {
     }
 
     private static let guestUserID = "guest-user"
+    private static let favoriteSpaceKeyPrefix = "favoriteSpaceID."
 
     @Published var spaces: [Space] = []
     @Published var activeSpace: Space?
@@ -18,6 +19,7 @@ final class SpaceService: ObservableObject {
 
     private var listener: ListenerRegistration?
     private let db = Firestore.firestore()
+    private let defaults = UserDefaults.standard
     private var currentUserID: String?
 
     deinit {
@@ -54,7 +56,7 @@ final class SpaceService: ObservableObject {
                        let updatedActiveSpace = spaces.first(where: { $0.id == activeSpace.id }) {
                         self.activeSpace = updatedActiveSpace
                     } else if self.activeSpace == nil || !spaces.contains(where: { $0.id == self.activeSpace?.id }) {
-                        self.activeSpace = spaces.first
+                        self.activeSpace = self.preferredActiveSpace(from: spaces)
                     }
                     self.errorMessage = nil
                     self.isLoading = false
@@ -64,6 +66,16 @@ final class SpaceService: ObservableObject {
 
     func setActiveSpace(_ space: Space) {
         activeSpace = space
+    }
+
+    func setFavoriteSpace(_ space: Space) {
+        guard let key = favoriteSpaceKey else { return }
+        defaults.set(space.id, forKey: key)
+        activeSpace = space
+    }
+
+    func isFavoriteSpace(_ space: Space) -> Bool {
+        favoriteSpaceID == space.id
     }
 
     func createSpace(name: String, createdBy: String) async throws -> Space {
@@ -90,6 +102,7 @@ final class SpaceService: ObservableObject {
         ])
 
         upsertLocalSpace(space)
+        setFavoriteSpace(space)
         activeSpace = space
 
         return space
@@ -328,8 +341,27 @@ final class SpaceService: ObservableObject {
            let updatedActiveSpace = refreshedSpaces.first(where: { $0.id == activeSpace.id }) {
             self.activeSpace = updatedActiveSpace
         } else if self.activeSpace == nil || !refreshedSpaces.contains(where: { $0.id == self.activeSpace?.id }) {
-            self.activeSpace = refreshedSpaces.first
+            self.activeSpace = preferredActiveSpace(from: refreshedSpaces)
         }
+    }
+
+    private var favoriteSpaceKey: String? {
+        guard let currentUserID, !currentUserID.isEmpty else { return nil }
+        return Self.favoriteSpaceKeyPrefix + currentUserID
+    }
+
+    private var favoriteSpaceID: String? {
+        guard let key = favoriteSpaceKey else { return nil }
+        return defaults.string(forKey: key)
+    }
+
+    private func preferredActiveSpace(from spaces: [Space]) -> Space? {
+        if let favoriteSpaceID,
+           let favoriteSpace = spaces.first(where: { $0.id == favoriteSpaceID }) {
+            return favoriteSpace
+        }
+
+        return spaces.first
     }
 
     private func makeSpace(from document: QueryDocumentSnapshot) -> Space? {
@@ -391,8 +423,11 @@ final class SpaceService: ObservableObject {
 
     private func removeLocalSpace(spaceID: String) {
         spaces.removeAll { $0.id == spaceID }
+        if favoriteSpaceID == spaceID, let key = favoriteSpaceKey {
+            defaults.removeObject(forKey: key)
+        }
         if activeSpace?.id == spaceID {
-            activeSpace = spaces.first
+            activeSpace = preferredActiveSpace(from: spaces)
         }
     }
 

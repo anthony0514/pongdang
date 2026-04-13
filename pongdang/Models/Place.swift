@@ -8,7 +8,6 @@ struct Place: Codable, Identifiable, Equatable {
     var latitude: Double
     var longitude: Double
     var category: PlaceCategory
-    var tags: [String]
     var memo: String?
     var sourceURL: String?
     var addedBy: String

@@ -62,16 +62,10 @@ struct ManageSpaceView: View {
                     }
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
 
-                    Button(isActiveSpace ? "현재 선택된 스페이스" : "현재 스페이스로 선택") {
-                        spaceService.setActiveSpace(currentSpace)
+                    Button(isFavoriteSpace ? "즐겨찾기된 스페이스" : "즐겨찾기로 설정") {
+                        spaceService.setFavoriteSpace(currentSpace)
                     }
-                    .disabled(isActiveSpace)
-
-                    if !isOwner {
-                        Text("스페이스 이름 수정은 방장만 할 수 있습니다.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    .disabled(isFavoriteSpace)
                 }
 
                 Section("초대 코드") {
@@ -202,8 +196,8 @@ struct ManageSpaceView: View {
         spaceName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var isActiveSpace: Bool {
-        spaceService.activeSpace?.id == currentSpace.id
+    private var isFavoriteSpace: Bool {
+        spaceService.isFavoriteSpace(currentSpace)
     }
 
     private var isOwner: Bool {
@@ -310,14 +304,16 @@ struct ManageSpaceView: View {
             isSavingName = true
             didSaveName = false
             localErrorMessage = nil
+            let sanitizedName = InputSanitizer.sanitize(trimmedSpaceName, as: .spaceName)
+
             do {
                 try await spaceService.updateSpaceName(
                     spaceID: currentSpace.id,
-                    name: InputSanitizer.sanitize(trimmedSpaceName, as: .spaceName),
+                    name: sanitizedName,
                     requestedBy: authService.currentUser?.id ?? ""
                 )
-                savedSpaceName = trimmedSpaceName
-                spaceName = trimmedSpaceName
+                savedSpaceName = sanitizedName
+                spaceName = sanitizedName
                 didSaveName = true
             } catch {
                 presentError(error)

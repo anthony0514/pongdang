@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct AppSheetFooter: View {
-    @State private var showingBrandOverlay = false
+    @State private var activeEasterEgg: EasterEggStyle?
 
     var body: some View {
         Button {
-            showingBrandOverlay = true
+            activeEasterEgg = .brand
         } label: {
             VStack(spacing: 8) {
                 Image("app_logo")
@@ -31,22 +31,9 @@ struct AppSheetFooter: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .fullScreenCover(isPresented: $showingBrandOverlay) {
-            ZStack {
-                DesignSystem.Backgrounds.lakeGradient
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        showingBrandOverlay = false
-                    }
-
-                Image("app_logo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 240, height: 240)
-                    .shadow(color: Color.black.opacity(0.18), radius: 22, y: 10)
-                    .onTapGesture {
-                        showingBrandOverlay = false
-                    }
+        .fullScreenCover(item: $activeEasterEgg) { style in
+            EasterEggOverlay(style: style) {
+                activeEasterEgg = nil
             }
         }
     }

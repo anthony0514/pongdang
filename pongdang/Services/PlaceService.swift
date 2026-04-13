@@ -104,6 +104,147 @@ final class PlaceService: ObservableObject {
         }
     }
 
+    func copyPlace(_ place: Place, to targetSpaceID: String, requestedBy requesterID: String) async throws {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            try ensureWritableUser(requesterID)
+
+            let normalizedTargetSpaceID = targetSpaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedTargetSpaceID.isEmpty else {
+                throw Self.makeError("공유할 스페이스를 선택해 주세요")
+            }
+
+            guard normalizedTargetSpaceID != place.spaceID else {
+                throw Self.makeError("현재 스페이스가 아닌 다른 스페이스를 선택해 주세요")
+            }
+
+            try await ensureMember(spaceID: place.spaceID, requesterID: requesterID)
+            try await ensureMember(spaceID: normalizedTargetSpaceID, requesterID: requesterID)
+
+            let copiedPlace = Place(
+                id: UUID().uuidString,
+                spaceID: normalizedTargetSpaceID,
+                name: place.name,
+                address: place.address,
+                latitude: place.latitude,
+                longitude: place.longitude,
+                category: place.category,
+                memo: place.memo,
+                sourceURL: place.sourceURL,
+                addedBy: requesterID,
+                addedAt: Date(),
+                isVisited: false
+            )
+
+            try await db.collection("places").document(copiedPlace.id).setData(data(for: copiedPlace))
+            isLoading = false
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            throw error
+        }
+    }
+
+    func copyPlaces(_ places: [Place], to targetSpaceID: String, requestedBy requesterID: String) async throws {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            try ensureWritableUser(requesterID)
+
+            let normalizedTargetSpaceID = targetSpaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedTargetSpaceID.isEmpty else {
+                throw Self.makeError("공유할 스페이스를 선택해 주세요")
+            }
+
+            guard !places.isEmpty else {
+                throw Self.makeError("공유할 장소를 선택해 주세요")
+            }
+
+            let sourceSpaceIDs = Set(places.map(\.spaceID))
+            guard sourceSpaceIDs.count == 1, let sourceSpaceID = sourceSpaceIDs.first else {
+                throw Self.makeError("같은 스페이스의 장소만 한 번에 공유할 수 있습니다")
+            }
+
+            guard normalizedTargetSpaceID != sourceSpaceID else {
+                throw Self.makeError("현재 스페이스가 아닌 다른 스페이스를 선택해 주세요")
+            }
+
+            try await ensureMember(spaceID: sourceSpaceID, requesterID: requesterID)
+            try await ensureMember(spaceID: normalizedTargetSpaceID, requesterID: requesterID)
+
+            let batch = db.batch()
+            for place in places {
+                let copiedPlace = Place(
+                    id: UUID().uuidString,
+                    spaceID: normalizedTargetSpaceID,
+                    name: place.name,
+                    address: place.address,
+                    latitude: place.latitude,
+                    longitude: place.longitude,
+                    category: place.category,
+                    memo: place.memo,
+                    sourceURL: place.sourceURL,
+                    addedBy: requesterID,
+                    addedAt: Date(),
+                    isVisited: false
+                )
+
+                let reference = db.collection("places").document(copiedPlace.id)
+                batch.setData(data(for: copiedPlace), forDocument: reference)
+            }
+
+            try await batch.commit()
+            isLoading = false
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            throw error
+        }
+    }
+
+    func deletePlaces(ids placeIDs: [String], requestedBy requesterID: String) async throws {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            try ensureWritableUser(requesterID)
+            guard !placeIDs.isEmpty else {
+                throw Self.makeError("삭제할 장소를 선택해 주세요")
+            }
+
+            for placeID in Array(Set(placeIDs)) {
+                let existingPlace = try await fetchPlace(id: placeID)
+                try await ensureMember(spaceID: existingPlace.spaceID, requesterID: requesterID)
+                let ownerID = try await ownerID(for: existingPlace.spaceID)
+
+                guard requesterID == existingPlace.addedBy || requesterID == ownerID else {
+                    throw Self.makeError("일부 장소를 삭제할 권한이 없습니다")
+                }
+
+                let recordSnapshot = try await db.collection("visitRecords")
+                    .whereField("spaceID", isEqualTo: existingPlace.spaceID)
+                    .whereField("placeID", isEqualTo: placeID)
+                    .getDocuments()
+
+                let batch = db.batch()
+                for document in recordSnapshot.documents {
+                    batch.deleteDocument(document.reference)
+                }
+                batch.deleteDocument(db.collection("places").document(placeID))
+                try await batch.commit()
+            }
+
+            isLoading = false
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+            throw error
+        }
+    }
+
     private func data(for place: Place) -> [String: Any] {
         [
             "id": place.id,
@@ -113,7 +254,6 @@ final class PlaceService: ObservableObject {
             "latitude": place.latitude,
             "longitude": place.longitude,
             "category": place.category.rawValue,
-            "tags": place.tags,
             "memo": place.memo as Any,
             "sourceURL": place.sourceURL as Any,
             "addedBy": place.addedBy,
@@ -129,7 +269,6 @@ final class PlaceService: ObservableObject {
             "latitude": place.latitude,
             "longitude": place.longitude,
             "category": place.category.rawValue,
-            "tags": place.tags,
             "memo": place.memo as Any,
             "sourceURL": place.sourceURL as Any,
             "isVisited": place.isVisited
@@ -195,7 +334,6 @@ final class PlaceService: ObservableObject {
             latitude: latitude,
             longitude: longitude,
             category: category,
-            tags: data["tags"] as? [String] ?? [],
             memo: data["memo"] as? String,
             sourceURL: data["sourceURL"] as? String,
             addedBy: addedBy,

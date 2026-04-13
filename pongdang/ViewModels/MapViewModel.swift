@@ -69,7 +69,6 @@ final class MapViewModel: NSObject, ObservableObject {
                             latitude: lat,
                             longitude: lng,
                             category: category,
-                            tags: d["tags"] as? [String] ?? [],
                             memo: d["memo"] as? String,
                             sourceURL: d["sourceURL"] as? String,
                             addedBy: addedBy,
