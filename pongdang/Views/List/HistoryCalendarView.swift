@@ -28,7 +28,10 @@ struct HistoryCalendarView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+
                 if spaceService.activeSpace == nil {
                     ContentUnavailableView(
                         "스페이스가 없습니다",
