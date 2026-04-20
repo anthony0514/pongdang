@@ -139,12 +139,12 @@ struct PlaceListView: View {
 
     @ViewBuilder
     private var bottomInsetContent: some View {
-        if spaceService.activeSpace != nil {
-            if !isSelectionMode {
-                bottomSearchField
-            } else {
-                bottomBarPlaceholder
-            }
+        if spaceService.activeSpace == nil {
+            Color.clear.frame(height: 0)
+        } else if !isSelectionMode {
+            bottomSearchField
+        } else {
+            bottomBarPlaceholder
         }
     }
 

@@ -14,19 +14,29 @@ struct SpaceListView: View {
 
     var body: some View {
         List {
-            ForEach(spaceService.spaces) { space in
-                SpaceRow(
-                    space: space,
-                    isActive: space.id == spaceService.activeSpace?.id,
-                    isFavorite: spaceService.isFavoriteSpace(space),
-                    onManage: {
-                        managingSpace = space
-                    },
-                    onSelect: {
-                        spaceService.setActiveSpace(space)
-                        dismiss()
-                    }
+            if spaceService.spaces.isEmpty {
+                ContentUnavailableView(
+                    "참여한 스페이스가 없습니다",
+                    systemImage: "person.3",
+                    description: Text("스페이스를 만들거나 초대 코드로 참여해 보세요.")
                 )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else {
+                ForEach(spaceService.spaces) { space in
+                    SpaceRow(
+                        space: space,
+                        isActive: space.id == spaceService.activeSpace?.id,
+                        isFavorite: spaceService.isFavoriteSpace(space),
+                        onManage: {
+                            managingSpace = space
+                        },
+                        onSelect: {
+                            spaceService.setActiveSpace(space)
+                            dismiss()
+                        }
+                    )
+                }
             }
         }
         .navigationTitle("스페이스")
