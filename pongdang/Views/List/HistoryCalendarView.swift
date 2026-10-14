@@ -20,6 +20,7 @@ struct HistoryCalendarView: View {
     @State private var activityListener: ListenerRegistration?
     @State private var selectedActivity: ActivityRecord?
     @State private var showingHealthImport = false
+    @State private var showingDayShare = false
 
     var body: some View {
         NavigationStack {
@@ -48,40 +49,37 @@ struct HistoryCalendarView: View {
                             .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                         }
 
+                        // Visits and workouts share one list under the date.
                         Section(selectedDateTitle) {
-                            if recordsForSelectedDate.isEmpty {
-                                Text("선택한 날짜에는 방문 기록이 없습니다.")
+                            if recordsForSelectedDate.isEmpty && activitiesForSelectedDate.isEmpty {
+                                Text("기록이 없습니다")
                                     .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(recordsForSelectedDate) { record in
-                                    Button {
-                                        selectedVisit = record
-                                    } label: {
-                                        CalendarVisitRow(
-                                            record: record,
-                                            place: placeByID[record.placeID],
-                                            participantNames: participantNames(for: record)
-                                        )
+                            }
+
+                            ForEach(recordsForSelectedDate) { record in
+                                Button {
+                                    selectedVisit = record
+                                } label: {
+                                    CalendarVisitRow(
+                                        record: record,
+                                        place: placeByID[record.placeID],
+                                        participantNames: participantNames(for: record)
+                                    )
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            ForEach(activitiesForSelectedDate) { activity in
+                                Button {
+                                    selectedActivity = activity
+                                } label: {
+                                    CalendarActivityRow(activity: activity)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
                                 }
-                            }
-                        }
-
-                        if !activitiesForSelectedDate.isEmpty {
-                            Section("운동") {
-                                ForEach(activitiesForSelectedDate) { activity in
-                                    Button {
-                                        selectedActivity = activity
-                                    } label: {
-                                        CalendarActivityRow(activity: activity)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -101,7 +99,7 @@ struct HistoryCalendarView: View {
             }
             .toolbar {
                 if spaceService.activeSpace != nil && !authService.isGuestUser {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Button {
                             showingHealthImport = true
                         } label: {
@@ -110,6 +108,26 @@ struct HistoryCalendarView: View {
                         .accessibilityLabel("건강에서 운동 가져오기")
                     }
                 }
+
+                if spaceService.activeSpace != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingDayShare = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .disabled(recordsForSelectedDate.isEmpty && activitiesForSelectedDate.isEmpty)
+                        .accessibilityLabel("이 날짜 기록 공유")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingDayShare) {
+                DayShareSheet(
+                    date: selectedDate,
+                    visits: recordsForSelectedDate,
+                    activities: activitiesForSelectedDate,
+                    placeByID: placeByID
+                )
             }
             .sheet(isPresented: $showingHealthImport) {
                 if let space = spaceService.activeSpace {
@@ -183,8 +201,7 @@ struct HistoryCalendarView: View {
             selectedVisit = nil
             navigationState.showPlaceOnMap(
                 placeID: visit.placeID,
-                presentDetail: true,
-                compactDetailSheet: true
+                presentDetail: true
             )
         }
     }
@@ -252,60 +269,100 @@ struct HistoryCalendarView: View {
     }
 }
 
+private enum CalendarRowMetrics {
+    static let thumbnailSize: CGFloat = 44
+    static let thumbnailCornerRadius: CGFloat = 10
+}
+
+/// Shared row layout: thumbnail | title + subtitle | trailing info + chevron.
+/// The list separator lines up with the title.
+private struct CalendarRowLayout<Thumbnail: View, Trailing: View>: View {
+    let title: String
+    let subtitle: String?
+    @ViewBuilder let thumbnail: Thumbnail
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            thumbnail
+                .frame(width: CalendarRowMetrics.thumbnailSize, height: CalendarRowMetrics.thumbnailSize)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            trailing
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 2)
+        // Start the separator at the title, past the thumbnail.
+        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+            dimensions[.leading] + CalendarRowMetrics.thumbnailSize + 12
+        }
+    }
+}
+
+private struct CalendarIconTile: View {
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: CalendarRowMetrics.thumbnailCornerRadius, style: .continuous)
+            .fill(color.opacity(0.15))
+            .overlay {
+                Image(systemName: systemImage)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(color)
+            }
+    }
+}
+
 private struct CalendarVisitRow: View {
     let record: VisitRecord
     let place: Place?
     let participantNames: [String]
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .center, spacing: 8) {
-                    if let photoURL = record.photoURL {
-                        VisitPhotoView(url: URL(string: photoURL), size: 34, cornerRadius: 8)
-                    } else {
-                        categoryIcon
-                    }
-
-                    Text(record.placeName)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-
-                    Spacer(minLength: 8)
-
-                    if let average = record.averageRating {
-                        Label(String(format: "%.1f", average), systemImage: "star.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.orange)
-                    }
-
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-
-                if !participantNames.isEmpty {
-                    Text(participantNames.joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+        CalendarRowLayout(
+            title: record.placeName,
+            subtitle: participantNames.joined(separator: ", ")
+        ) {
+            if let photoURL = record.photoURL {
+                CachedThumbnail(
+                    url: URL(string: photoURL),
+                    size: CalendarRowMetrics.thumbnailSize,
+                    cornerRadius: CalendarRowMetrics.thumbnailCornerRadius
+                )
+            } else {
+                CalendarIconTile(
+                    systemImage: place?.category.systemImageName ?? "mappin.and.ellipse",
+                    color: place?.category.accentColor ?? Color(.systemGray)
+                )
             }
-        }
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    private var categoryIcon: some View {
-        ZStack {
-            Circle()
-                .fill((place?.category.accentColor ?? Color(.systemGray3)).opacity(0.16))
-                .frame(width: 34, height: 34)
-
-            Image(systemName: place?.category.systemImageName ?? "mappin.and.ellipse")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(place?.category.accentColor ?? Color(.systemGray))
+        } trailing: {
+            if let average = record.averageRating {
+                HStack(spacing: 3) {
+                    Image(systemName: "star.fill")
+                    Text(String(format: "%.1f", average))
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+            }
         }
     }
 }
@@ -314,28 +371,22 @@ private struct CalendarActivityRow: View {
     let activity: ActivityRecord
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: activity.activityType.systemImageName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.green)
-                .frame(width: 34, height: 34)
-                .background(Color.green.opacity(0.16), in: Circle())
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(activity.activityType.displayName)
-                    .font(.headline)
-                Text("\(ActivityFormat.distance(activity.distanceMeters)) · \(ActivityFormat.duration(activity.duration))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        CalendarRowLayout(
+            title: activity.title,
+            subtitle: "\(ActivityFormat.distance(activity.distanceMeters)) · \(ActivityFormat.duration(activity.duration))"
+        ) {
+            if let photoURL = activity.photoURL {
+                CachedThumbnail(
+                    url: URL(string: photoURL),
+                    size: CalendarRowMetrics.thumbnailSize,
+                    cornerRadius: CalendarRowMetrics.thumbnailCornerRadius
+                )
+            } else {
+                CalendarIconTile(systemImage: activity.activityType.systemImageName, color: .green)
             }
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
+        } trailing: {
+            EmptyView()
         }
-        .padding(.vertical, 4)
     }
 }
 

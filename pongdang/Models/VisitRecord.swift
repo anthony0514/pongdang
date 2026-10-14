@@ -45,9 +45,10 @@ struct VisitRecord: Identifiable, Hashable {
     }()
 }
 
+/// A comment on a visit or an activity. Activity comments have no rating (0).
 struct VisitComment: Identifiable, Hashable {
     var id: String
-    var visitID: String
+    var visitID: String  // parent visit or activity ID
     var spaceID: String
     var body: String
     var rating: Int

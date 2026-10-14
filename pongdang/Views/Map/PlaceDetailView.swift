@@ -42,11 +42,9 @@ struct PlaceDetailView: View {
     @State private var visitRecordListener: ListenerRegistration?
 
     let place: Place
-    let showsFloatingWriteButton: Bool
 
-    init(place: Place, showsFloatingWriteButton: Bool) {
+    init(place: Place) {
         self.place = place
-        self.showsFloatingWriteButton = showsFloatingWriteButton
         _selectedCategory = State(initialValue: place.category)
     }
 
@@ -146,25 +144,21 @@ struct PlaceDetailView: View {
                 HStack {
                     Spacer()
 
-                    if showsFloatingWriteButton {
-                        Button {
-                            showingVisitRecordForm = true
-                        } label: {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 24, weight: .bold))
-                                .frame(width: 58, height: 58)
-                                .background(Color(.secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("방문 기록 추가")
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    Button {
+                        showingVisitRecordForm = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 24, weight: .bold))
+                            .frame(width: 58, height: 58)
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("방문 기록 추가")
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-                .animation(.easeInOut(duration: 0.18), value: showsFloatingWriteButton)
             }
         }
     }
@@ -180,7 +174,8 @@ struct PlaceDetailView: View {
                     .padding(.vertical, 8)
                     .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listSectionSeparator(.visible, edges: .bottom)
+                    .listRowBackground(Color.clear)
+                    .listSectionSeparator(.hidden)
                 }
             }
 
@@ -190,13 +185,15 @@ struct PlaceDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.visible, edges: .top)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 } else if visitRecords.isEmpty {
                     Text("아직 남겨진 방문 기록이 없습니다.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.visible, edges: .top)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 } else {
                     ForEach(visitRecords) { record in
                         Button {
@@ -210,12 +207,18 @@ struct PlaceDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.visible)
+                        // Lines only between rows: none above the first or below the last.
+                        .listRowSeparator(.hidden, edges: .top)
+                        .listRowSeparator(record.id == visitRecords.last?.id ? .hidden : .visible, edges: .bottom)
+                        .listRowBackground(Color.clear)
                     }
                 }
             }
+            .listSectionSeparator(.hidden)
         }
         .listStyle(.plain)
+        // Let the sheet's translucent material show through.
+        .scrollContentBackground(.hidden)
     }
 
     private var hasSupplementaryContent: Bool {
@@ -382,22 +385,35 @@ struct PlaceDetailView: View {
 }
 
 private struct VisitRecordListRow: View {
+    private static let thumbnailSize: CGFloat = 48
+    private static let spacing: CGFloat = 12
+
     let record: VisitRecord
     let participantNames: [String]
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: Self.spacing) {
+            // Every row gets a tile, so titles and separators line up whether or not there is a photo.
             if let photoURL = record.photoURL {
-                VisitPhotoView(url: URL(string: photoURL), size: 48, cornerRadius: 10)
+                CachedThumbnail(url: URL(string: photoURL), size: Self.thumbnailSize, cornerRadius: 10)
+            } else {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .overlay {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(Self.dateFormatter.string(from: record.visitedAt))
                     .font(.headline)
 
                 if !participantNames.isEmpty {
                     Text(participantNames.joined(separator: ", "))
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -406,19 +422,22 @@ private struct VisitRecordListRow: View {
             Spacer(minLength: 8)
 
             if let average = record.averageRating {
-                Label(String(format: "%.1f", average), systemImage: "star.fill")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(Capsule())
+                HStack(spacing: 3) {
+                    Image(systemName: "star.fill")
+                    Text(String(format: "%.1f", average))
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
             }
 
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
+        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+            dimensions[.leading] + Self.thumbnailSize + Self.spacing
+        }
     }
 
     private static let dateFormatter: DateFormatter = {

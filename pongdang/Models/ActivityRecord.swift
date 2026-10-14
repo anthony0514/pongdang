@@ -14,6 +14,14 @@ struct ActivityRecord: Identifiable, Hashable {
     var encodedRoute: String  // Google polyline format, simplified
     var createdBy: String
     var createdAt: Date
+    var photoURL: String?
+    var photoPath: String?
+    var customTitle: String?
+
+    /// The name members gave it, or the workout type ("걷기") when unnamed.
+    var title: String {
+        customTitle ?? activityType.displayName
+    }
 
     var duration: TimeInterval {
         endedAt.timeIntervalSince(startedAt)

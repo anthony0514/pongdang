@@ -16,15 +16,14 @@ struct VisitDetailView: View {
     @State private var commentListener: ListenerRegistration?
     @State private var hasLoadedVisit = false
 
-    @State private var commentText = ""
-    @State private var newRating = 5
+    @State private var showingComposer = false
     @State private var editingComment: VisitComment?
     @State private var commentToDelete: VisitComment?
     @State private var localErrorMessage: String?
     @State private var photoItem: PhotosPickerItem?
     @State private var showingPhotoPicker = false
     @State private var showingRemovePhotoAlert = false
-    @FocusState private var isCommentFieldFocused: Bool
+    @State private var showingShareSheet = false
 
     init(visit: VisitRecord, onShowPlace: (() -> Void)? = nil) {
         _visit = State(initialValue: visit)
@@ -35,10 +34,9 @@ struct VisitDetailView: View {
         authService.currentUser?.id
     }
 
-    /// Only people who commented on this visit can change its photo.
+    /// Any space member can add, replace, or remove the photo.
     private var canEditPhoto: Bool {
-        guard let currentUserID else { return false }
-        return visit.ratings[currentUserID]?.isEmpty == false
+        currentUserID != nil && !authService.isGuestUser
     }
 
     private var allComments: [VisitComment] {
@@ -47,44 +45,43 @@ struct VisitDetailView: View {
 
     var body: some View {
         List {
+            MainPhotoSection(
+                photoURL: visit.photoURL,
+                canEdit: canEditPhoto,
+                onPick: { showingPhotoPicker = true },
+                onRemove: { showingRemovePhotoAlert = true }
+            )
+
             Section {
-                photoSection
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(visit.placeName)
-                        .font(.title3.weight(.semibold))
-
-                    HStack(spacing: 8) {
-                        Text(Self.dateFormatter.string(from: visit.visitedAt))
-
-                        if let average = visit.averageRating {
-                            Label(String(format: "%.1f", average), systemImage: "star.fill")
-                                .labelStyle(.titleAndIcon)
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-
                 if let onShowPlace {
                     Button {
                         onShowPlace()
                     } label: {
-                        Label("지도에서 보기", systemImage: "map")
+                        HStack {
+                            titleCard
+                            Spacer(minLength: 8)
+                            Image(systemName: "map")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.tint)
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("지도에서 장소를 보여줘요")
+                } else {
+                    titleCard
                 }
+
             }
 
-            Section("댓글") {
+            Section(allComments.isEmpty ? "댓글" : "댓글 \(allComments.count)") {
                 if allComments.isEmpty {
                     Text("아직 댓글이 없어요. 첫 댓글을 남겨보세요.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(allComments) { comment in
-                        VisitCommentRow(
+                        CommentRow(
                             comment: comment,
                             authorName: displayName(for: comment.createdBy),
                             isMine: comment.createdBy == currentUserID,
@@ -103,13 +100,45 @@ struct VisitDetailView: View {
                 }
             }
         }
+        .listSectionSpacing(.compact)
+        .contentMargins(.top, 4, for: .scrollContent)
         .navigationTitle("방문 기록")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
-            commentInputBar
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingShareSheet = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("공유")
+            }
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            VisitShareSheet(
+                visit: visit,
+                comments: allComments
+                    .filter { !$0.body.isEmpty }
+                    .map { VisitShareSheet.SharedComment(authorName: displayName(for: $0.createdBy), body: $0.body) }
+            )
+        }
+        // Keep the last comment clear of the floating button.
+        .contentMargins(.bottom, 84, for: .scrollContent)
+        .overlay(alignment: .bottomTrailing) {
+            if !authService.isGuestUser {
+                FloatingWriteButton(accessibilityLabel: "댓글 남기기") {
+                    showingComposer = true
+                }
+            }
+        }
+        .sheet(isPresented: $showingComposer) {
+            CommentEditorSheet(showsRating: true) { body, rating in
+                guard let userID = currentUserID else { return }
+                try await visitRecordService.addComment(body, rating: rating, to: visit, requestedBy: userID)
+            }
         }
         .sheet(item: $editingComment) { comment in
-            CommentEditSheet(comment: comment) { body, rating in
+            CommentEditorSheet(editing: comment, showsRating: true) { body, rating in
                 try await updateComment(comment, body: body, rating: rating)
             }
         }
@@ -158,74 +187,25 @@ struct VisitDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private var photoSection: some View {
-        if let photoURL = visit.photoURL {
-            VisitPhotoView(url: URL(string: photoURL))
-                .overlay(alignment: .topTrailing) {
-                    if canEditPhoto {
-                        Menu {
-                            Button {
-                                showingPhotoPicker = true
-                            } label: {
-                                Label("사진 변경", systemImage: "photo")
-                            }
+    private var titleCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(visit.placeName)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
 
-                            Button(role: .destructive) {
-                                showingRemovePhotoAlert = true
-                            } label: {
-                                Label("사진 삭제", systemImage: "trash")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 32, height: 32)
-                                .background(.black.opacity(0.45), in: Circle())
-                        }
-                        .padding(10)
-                        .accessibilityLabel("사진 옵션")
-                    }
+            HStack(spacing: 8) {
+                Text(Self.dateFormatter.string(from: visit.visitedAt))
+
+                if let average = visit.averageRating {
+                    Label(String(format: "%.1f", average), systemImage: "star.fill")
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.orange)
                 }
-                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
-                .listRowSeparator(.hidden)
-        } else if canEditPhoto {
-            Button {
-                showingPhotoPicker = true
-            } label: {
-                Label("대표 사진 추가", systemImage: "photo.badge.plus")
             }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
         }
-    }
-
-    private var commentInputBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            StarRatingPicker(rating: $newRating, size: 20)
-
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField("댓글 남기기", text: $commentText, axis: .vertical)
-                    .lineLimit(1...5)
-                    .focused($isCommentFieldFocused)
-                    .onChange(of: commentText) { _, newValue in
-                        commentText = InputSanitizer.truncate(newValue, as: .body)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-                Button {
-                    submitComment()
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 32))
-                }
-                .disabled(visitRecordService.isLoading)
-                .accessibilityLabel("댓글 등록")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
+        .padding(.vertical, 4)
     }
 
     private var namesWithCurrentUser: [String: String] {
@@ -262,27 +242,6 @@ struct VisitDetailView: View {
         commentListener?.remove()
         commentListener = visitRecordService.listenForComments(of: visit) { updated in
             comments = updated
-        }
-    }
-
-    private func submitComment() {
-        guard let userID = currentUserID else { return }
-        let body = InputSanitizer.sanitize(
-            commentText.trimmingCharacters(in: .whitespacesAndNewlines),
-            as: .body
-        )
-        let rating = newRating
-
-        Task {
-            do {
-                localErrorMessage = nil
-                try await visitRecordService.addComment(body, rating: rating, to: visit, requestedBy: userID)
-                commentText = ""
-                newRating = 5
-                isCommentFieldFocused = false
-            } catch {
-                localErrorMessage = visitRecordService.errorMessage ?? error.localizedDescription
-            }
         }
     }
 
@@ -342,149 +301,4 @@ struct VisitDetailView: View {
         formatter.dateFormat = "yyyy.MM.dd (E)"
         return formatter
     }()
-}
-
-private struct VisitCommentRow: View {
-    let comment: VisitComment
-    let authorName: String
-    let isMine: Bool
-    let onEdit: () -> Void
-    let onDelete: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text(authorName)
-                    .font(.subheadline.weight(.semibold))
-
-                if comment.rating > 0 {
-                    StarRatingView(rating: comment.rating, size: 11)
-                }
-
-                Spacer(minLength: 4)
-
-                Text(Self.relativeFormatter.localizedString(for: comment.createdAt, relativeTo: Date()))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if comment.updatedAt != nil {
-                    Text("수정됨")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if isMine {
-                    Menu {
-                        if !comment.isLegacy {
-                            Button {
-                                onEdit()
-                            } label: {
-                                Label("편집", systemImage: "pencil")
-                            }
-                        }
-
-                        Button(role: .destructive) {
-                            onDelete()
-                        } label: {
-                            Label("삭제", systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("댓글 옵션")
-                }
-            }
-
-            if !comment.body.isEmpty {
-                Text(comment.body)
-                    .font(.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.unitsStyle = .short
-        return formatter
-    }()
-}
-
-private struct CommentEditSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let comment: VisitComment
-    let onSave: (String, Int) async throws -> Void
-
-    @State private var rating: Int
-    @State private var text: String
-    @State private var isSaving = false
-    @State private var errorMessage: String?
-
-    init(comment: VisitComment, onSave: @escaping (String, Int) async throws -> Void) {
-        self.comment = comment
-        self.onSave = onSave
-        _rating = State(initialValue: max(comment.rating, 1))
-        _text = State(initialValue: comment.body)
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("별점") {
-                    StarRatingPicker(rating: $rating)
-                }
-
-                Section("댓글") {
-                    TextEditor(text: $text)
-                        .onChange(of: text) { _, newValue in
-                            text = InputSanitizer.truncate(newValue, as: .body)
-                        }
-                        .frame(minHeight: 140)
-                        .padding(.horizontal, -4)
-                }
-
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-            .navigationTitle("댓글 편집")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("취소") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("저장") { save() }
-                        .disabled(isSaving)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private func save() {
-        let body = InputSanitizer.sanitize(text.trimmingCharacters(in: .whitespacesAndNewlines), as: .body)
-        isSaving = true
-        Task {
-            do {
-                try await onSave(body, rating)
-                dismiss()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isSaving = false
-        }
-    }
 }

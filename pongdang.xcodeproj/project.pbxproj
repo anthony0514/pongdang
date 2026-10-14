@@ -539,6 +539,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "건강 앱에 기록된 운동과 이동 경로를 불러와, 선택한 운동을 스페이스 멤버와 공유하기 위해 필요합니다.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "지도에서 현재 위치를 표시하고 내 위치로 이동하기 위해 위치 접근 권한이 필요합니다.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "공유 카드 이미지를 사진 앱에 저장하기 위해 필요합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -578,6 +579,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "건강 앱에 기록된 운동과 이동 경로를 불러와, 선택한 운동을 스페이스 멤버와 공유하기 위해 필요합니다.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "지도에서 현재 위치를 표시하고 내 위치로 이동하기 위해 위치 접근 권한이 필요합니다.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "공유 카드 이미지를 사진 앱에 저장하기 위해 필요합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -694,7 +696,7 @@
 				DEVELOPMENT_TEAM = C93BJL2HKK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = pongdangShareExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = pongdangShareExtension;
+				INFOPLIST_KEY_CFBundleDisplayName = "퐁당";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -725,7 +727,7 @@
 				DEVELOPMENT_TEAM = C93BJL2HKK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = pongdangShareExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = pongdangShareExtension;
+				INFOPLIST_KEY_CFBundleDisplayName = "퐁당";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

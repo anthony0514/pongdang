@@ -271,7 +271,7 @@ class AuthService: ObservableObject {
 
                 // Clean up visit ratings/comments while still a member, then leave.
                 try await VisitRecordService.removeParticipation(of: userID, inSpace: spaceID, db: db)
-                try await ActivityService.deleteActivities(spaceID: spaceID, createdBy: userID, db: db)
+                try await ActivityService.removeParticipation(of: userID, inSpace: spaceID, db: db)
                 try await spaceDocument.reference.updateData([
                     "memberIDs": FieldValue.arrayRemove([userID]),
                     "sharedHomeMemberIDs": FieldValue.arrayRemove([userID])

@@ -506,8 +506,7 @@ struct PlaceListView: View {
 
         navigationState.showPlaceOnMap(
             placeID: place.id,
-            presentDetail: true,
-            compactDetailSheet: true
+            presentDetail: true
         )
     }
 

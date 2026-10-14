@@ -1,7 +1,6 @@
 import Foundation
 import Combine
 import FirebaseFirestore
-import FirebaseStorage
 
 @MainActor
 final class VisitRecordService: ObservableObject {
@@ -135,40 +134,28 @@ final class VisitRecordService: ObservableObject {
                 "photoPath": FieldValue.delete(),
                 "updatedAt": Timestamp(date: Date())
             ])
-            await Self.deletePhotoFile(at: oldPath)
+            await PhotoStorage.delete(at: oldPath)
         }
     }
 
     private func uploadPhoto(_ imageData: Data, spaceID: String, visitID: String) async throws {
-        let path = "visitPhotos/\(spaceID)/\(visitID)/\(UUID().uuidString).jpg"
-        let reference = Storage.storage().reference(withPath: path)
-        let metadata = StorageMetadata()
-        metadata.contentType = "image/jpeg"
-
-        _ = try await reference.putDataAsync(imageData, metadata: metadata)
-        let downloadURL = try await reference.downloadURL()
+        let (downloadURL, path) = try await PhotoStorage.upload(imageData, folder: "visitPhotos/\(spaceID)/\(visitID)")
 
         let visitRef = db.collection("visitRecords").document(visitID)
         let oldPath = try await visitRef.getDocument().data()?["photoPath"] as? String
 
         do {
             try await visitRef.updateData([
-                "photoURL": downloadURL.absoluteString,
+                "photoURL": downloadURL,
                 "photoPath": path,
                 "updatedAt": Timestamp(date: Date())
             ])
         } catch {
-            await Self.deletePhotoFile(at: path)
+            await PhotoStorage.delete(at: path)
             throw error
         }
 
-        await Self.deletePhotoFile(at: oldPath)
-    }
-
-    /// Best effort: a leftover file only costs storage, so failures are ignored.
-    private static func deletePhotoFile(at path: String?) async {
-        guard let path, !path.isEmpty else { return }
-        try? await Storage.storage().reference(withPath: path).delete()
+        await PhotoStorage.delete(at: oldPath)
     }
 
     // MARK: - Listeners
@@ -283,7 +270,7 @@ final class VisitRecordService: ObservableObject {
                 try await comment.reference.delete()
             }
             try await document.reference.delete()
-            await deletePhotoFile(at: document.data()["photoPath"] as? String)
+            await PhotoStorage.delete(at: document.data()["photoPath"] as? String)
         }
     }
 
@@ -313,7 +300,7 @@ final class VisitRecordService: ObservableObject {
             let ratings = parseRatings(data["ratings"])
             if ratings.keys.allSatisfy({ $0 == userID }) {
                 try await document.reference.delete()
-                await deletePhotoFile(at: data["photoPath"] as? String)
+                await PhotoStorage.delete(at: data["photoPath"] as? String)
             } else if ratings[userID] != nil {
                 try await document.reference.updateData([
                     FieldPath(["ratings", userID]): FieldValue.delete(),
@@ -432,7 +419,7 @@ final class VisitRecordService: ObservableObject {
             return nil
         }
 
-        await Self.deletePhotoFile(at: deletedPhotoPath as? String)
+        await PhotoStorage.delete(at: deletedPhotoPath as? String)
     }
 
     private func updatePlaceVisitedState(placeID: String, spaceID: String) async throws {
@@ -556,7 +543,7 @@ final class VisitRecordService: ObservableObject {
         }
     }
 
-    private static func comment(from document: QueryDocumentSnapshot, visitID: String) -> VisitComment? {
+    static func comment(from document: QueryDocumentSnapshot, visitID: String) -> VisitComment? {
         let data = document.data()
         guard
             let spaceID = data["spaceID"] as? String,

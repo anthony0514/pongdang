@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import FirebaseFirestore
 
 struct MapView: View {
     private enum ExternalMapApp: String {
@@ -26,6 +27,13 @@ struct MapView: View {
     @AppStorage("preferredExternalMapApp") private var preferredExternalMapAppRawValue = ExternalMapApp.kakao.rawValue
 
     @StateObject private var viewModel = MapViewModel()
+    @StateObject private var visitRecordService = VisitRecordService()
+    @State private var photoURLByPlaceID: [String: URL] = [:]
+    /// Places with a photo, most recently visited first. Earlier ones win when photos overlap.
+    @State private var photoPinOrder: [String] = []
+    @State private var photoPins = PhotoPinSimulator()
+    @State private var mapSize: CGSize = .zero
+    @State private var visitRecordListener: ListenerRegistration?
     @State private var selectedPlace: Place? = nil
     @State private var showingPlaceDetail = false
     @State private var showingVisitRecordForm = false
@@ -36,7 +44,6 @@ struct MapView: View {
     @State private var longPressSourceURL: String? = nil
     @State private var isResolvingAddress = false
     @State private var showingSpaceSheet = false
-    @State private var selectedPlaceDetailDetent: PresentationDetent = .fraction(0.34)
     @State private var cameraPosition: MapCameraPosition = .region(
         MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780),
@@ -122,15 +129,14 @@ struct MapView: View {
     @ViewBuilder
     private var placeDetailSheet: some View {
         if let selectedPlace {
-            PlaceDetailView(
-                place: selectedPlace,
-                showsFloatingWriteButton: selectedPlaceDetailDetent == .large
-            )
+            PlaceDetailView(place: selectedPlace)
             .environmentObject(spaceService)
             .environmentObject(authService)
             .environmentObject(navigationState)
-            .presentationDetents([.fraction(0.34), .large], selection: $selectedPlaceDetailDetent)
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+            // Frosted glass: the map stays faintly visible behind the sheet.
+            .presentationBackground(.regularMaterial)
         }
     }
 
@@ -198,22 +204,47 @@ struct MapView: View {
                             .onTapGesture {
                                 withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                                     selectedPlace = place
-                                    selectedPlaceDetailDetent = .fraction(0.34)
                                     showingPlaceDetail = true
                                 }
                             }
                     }
                 }
             }
-            .onTapGesture {
+            .overlay {
+                PhotoPinOverlay(simulator: photoPins)
+            }
+            .onGeometryChange(for: CGSize.self) { geometry in
+                geometry.size
+            } action: { size in
+                mapSize = size
+                updatePhotoPins(using: proxy)
+            }
+            .onTapGesture { location in
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                    selectedPlace = nil
-                    showingPlaceDetail = false
+                    // Photos are drawn on a layer that ignores touches, so hit-test them here.
+                    if let placeID = photoPins.placeID(at: location),
+                       let place = viewModel.places.first(where: { $0.id == placeID }) {
+                        selectedPlace = place
+                        showingPlaceDetail = true
+                    } else {
+                        selectedPlace = nil
+                        showingPlaceDetail = false
+                    }
                 }
             }
             .mapControls {
                 MapCompass()
                 MapScaleView()
+            }
+            // Every camera frame, so photos follow pins and jostle while zooming.
+            .onMapCameraChange(frequency: .continuous) { _ in
+                updatePhotoPins(using: proxy)
+            }
+            .onChange(of: photoPinOrder) { _, _ in
+                updatePhotoPins(using: proxy)
+            }
+            .onChange(of: viewModel.places) { _, _ in
+                updatePhotoPins(using: proxy)
             }
             .simultaneousGesture(longPressGesture(using: proxy))
         }
@@ -340,6 +371,7 @@ struct MapView: View {
 
         if let space = spaceService.activeSpace {
             viewModel.fetchPlaces(for: space.id)
+            listenForVisitPhotos(spaceID: space.id)
         }
         applyPendingShareIfNeeded()
         presentFocusedPlaceIfNeeded(from: viewModel.places)
@@ -348,11 +380,45 @@ struct MapView: View {
     private func handleActiveSpaceChange(_ space: Space?) {
         if let space {
             viewModel.fetchPlaces(for: space.id)
+            listenForVisitPhotos(spaceID: space.id)
         } else {
+            visitRecordListener?.remove()
+            visitRecordListener = nil
+            photoURLByPlaceID = [:]
+            photoPinOrder = []
             withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                 selectedPlace = nil
             }
         }
+    }
+
+    /// Keeps the most recent visit photo for each place, for the zoomed-in photo pins.
+    private func listenForVisitPhotos(spaceID: String) {
+        visitRecordListener?.remove()
+        visitRecordListener = visitRecordService.listenForSpaceRecords(spaceID: spaceID) { records in
+            var latest: [String: URL] = [:]
+            var order: [String] = []
+            // Records arrive newest first, so the first photo seen per place wins.
+            for record in records {
+                guard latest[record.placeID] == nil, let photo = record.photoURL, let url = URL(string: photo) else { continue }
+                latest[record.placeID] = url
+                order.append(record.placeID)
+            }
+            photoURLByPlaceID = latest
+            photoPinOrder = order
+        }
+    }
+
+    /// Feeds current pin screen positions to the photo simulation. Cheap: one projection per place.
+    private func updatePhotoPins(using proxy: MapProxy) {
+        var pinCenters: [String: CGPoint] = [:]
+        for place in viewModel.places {
+            pinCenters[place.id] = proxy.convert(place.coordinate, to: .local)
+        }
+        let photos = photoPinOrder.compactMap { placeID in
+            photoURLByPlaceID[placeID].map { (placeID: placeID, url: $0) }
+        }
+        photoPins.update(photos: photos, pinCenters: pinCenters, bounds: CGRect(origin: .zero, size: mapSize))
     }
 
     private func handlePlacesChange(_ places: [Place]) {
@@ -391,7 +457,6 @@ struct MapView: View {
         viewModel.focus(on: place.coordinate)
 
         if request.shouldPresentPlaceDetail {
-            selectedPlaceDetailDetent = request.prefersCompactPlaceDetailSheet ? .fraction(0.34) : .large
             showingPlaceDetail = true
         }
 
@@ -540,10 +605,14 @@ private struct PlaceAnnotationView: View {
     let place: Place
 
     var body: some View {
+        pin
+    }
+
+    private var pin: some View {
         ZStack {
             Circle()
                 .fill(place.category.accentColor)
-                .frame(width: 24, height: 24)
+                .frame(width: PhotoPinSimulator.pinSize, height: PhotoPinSimulator.pinSize)
 
             Image(systemName: place.category.systemImageName)
                 .font(.system(size: 10, weight: .bold))
