@@ -27,7 +27,6 @@ struct PlaceListView: View {
 
     @StateObject private var viewModel = MapViewModel()
     @StateObject private var placeService = PlaceService()
-    @StateObject private var visitRecordService = VisitRecordService()
 
     @State private var selectedStatusFilter: StatusFilter = .all
     @State private var selectedSortOption: SortOption = .newest
@@ -39,8 +38,6 @@ struct PlaceListView: View {
     @State private var placeToDelete: Place?
     @State private var showingBatchShare = false
     @State private var showingBatchDeleteAlert = false
-    @State private var visitRecords: [VisitRecord] = []
-    @State private var visitRecordListener: ListenerRegistration?
     @State private var searchableContentByPlaceID: [String: String] = [:]
     @State private var searchIndexBuildTask: Task<Void, Never>?
 
@@ -109,9 +106,6 @@ struct PlaceListView: View {
             .onChange(of: viewModel.places) { _, _ in
                 scheduleSearchIndexRebuild()
                 pruneSelection()
-            }
-            .onChange(of: visitRecords) { _, _ in
-                scheduleSearchIndexRebuild()
             }
             .onDisappear(perform: handleOnDisappear)
     }
@@ -194,7 +188,6 @@ struct PlaceListView: View {
     private func handleOnAppear() {
         if let space = spaceService.activeSpace {
             viewModel.fetchPlaces(for: space.id)
-            listenForVisitRecords(spaceID: space.id)
         }
         scheduleSearchIndexRebuild()
     }
@@ -202,23 +195,17 @@ struct PlaceListView: View {
     private func handleActiveSpaceChange(_ space: Space?) {
         if let space {
             viewModel.fetchPlaces(for: space.id)
-            listenForVisitRecords(spaceID: space.id)
             pruneSelection()
         } else {
             viewModel.places = []
-            visitRecords = []
             searchableContentByPlaceID = [:]
             clearSelectionMode()
             searchIndexBuildTask?.cancel()
-            visitRecordListener?.remove()
-            visitRecordListener = nil
         }
     }
 
     private func handleOnDisappear() {
         searchIndexBuildTask?.cancel()
-        visitRecordListener?.remove()
-        visitRecordListener = nil
     }
 
     private var bottomSearchField: some View {
@@ -634,47 +621,31 @@ struct PlaceListView: View {
         }
     }
 
-    private func listenForVisitRecords(spaceID: String) {
-        visitRecordListener?.remove()
-        visitRecordListener = visitRecordService.listenForSpaceRecords(spaceID: spaceID) { records in
-            visitRecords = records
-        }
-    }
-
     private func scheduleSearchIndexRebuild() {
         searchIndexBuildTask?.cancel()
 
         let places = viewModel.places
-        let records = visitRecords
 
         searchIndexBuildTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
 
-            let index = await buildSearchIndex(places: places, records: records)
+            let index = await buildSearchIndex(places: places)
             guard !Task.isCancelled else { return }
 
             searchableContentByPlaceID = index
         }
     }
 
-    private func buildSearchIndex(places: [Place], records: [VisitRecord]) async -> [String: String] {
+    private func buildSearchIndex(places: [Place]) async -> [String: String] {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                let visitRecordTextByPlaceID = Dictionary(grouping: records, by: \.placeID)
-                    .mapValues { records in
-                        records
-                            .flatMap { [$0.title, $0.body ?? ""] }
-                            .joined(separator: "\n")
-                    }
-
                 let index = Dictionary(uniqueKeysWithValues: places.map { place in
                     let fields = [
                         place.name,
                         place.address,
                         place.category.displayName,
-                        place.memo ?? "",
-                        visitRecordTextByPlaceID[place.id] ?? ""
+                        place.memo ?? ""
                     ]
 
                     return (place.id, fields.joined(separator: "\n").lowercased())
@@ -753,39 +724,4 @@ private struct PlaceListRow: View {
     private var selectionIndicatorColor: Color {
         return isSelected ? Color(hex: "2F7FB8") : Color(.secondaryLabel)
     }
-}
-
-struct VisitRecordRow: View {
-    let record: VisitRecord
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(record.placeName)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                Text(record.title)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-
-                HStack(spacing: 8) {
-                    Text(Self.dateFormatter.string(from: record.visitedAt))
-                    Text("\(record.rating)점")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy.MM.dd"
-        return formatter
-    }()
 }

@@ -1,117 +1,197 @@
 import Foundation
 import Combine
 import FirebaseFirestore
+import FirebaseStorage
 
 @MainActor
 final class VisitRecordService: ObservableObject {
     private static let guestUserID = "guest-user"
+    private static var migratingSpaceIDs: Set<String> = []
 
     @Published var isLoading = false
     @Published var errorMessage: String?
 
     private let db = Firestore.firestore()
 
-    func addVisitRecord(_ record: VisitRecord, requestedBy requesterID: String) async throws {
-        isLoading = true
-        errorMessage = nil
+    private struct VisitTarget {
+        let spaceID: String
+        let placeID: String
+        let placeName: String
+        let visitedAt: Date
 
-        do {
-            try ensureWritableUser(requesterID)
-            guard requesterID == record.createdBy else {
-                throw Self.makeError("방문 기록 작성 요청이 올바르지 않습니다")
-            }
-            try await ensureMember(spaceID: record.spaceID, requesterID: requesterID)
-            try await ensurePlaceMatchesRecord(record)
-            try await db.collection("visitRecords").document(record.id).setData(data(for: record))
-            try await updatePlaceVisitedState(placeID: record.placeID, isVisited: true, requestedBy: requesterID)
-            isLoading = false
-        } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
-            throw error
+        var visitID: String {
+            VisitRecord.id(spaceID: spaceID, placeID: placeID, visitedAt: visitedAt)
         }
     }
 
-    func updateVisitRecord(_ record: VisitRecord, requestedBy requesterID: String) async throws {
-        isLoading = true
-        errorMessage = nil
+    // MARK: - Comments
 
-        do {
-            try ensureWritableUser(requesterID)
-            try await ensureMember(spaceID: record.spaceID, requesterID: requesterID)
-            let existingRecord = try await fetchRecord(id: record.id)
+    /// Leaves a rated comment on the place's visit for that day,
+    /// creating the visit if nobody has recorded it yet.
+    func recordVisit(
+        place: Place,
+        visitedAt: Date,
+        rating: Int,
+        body: String,
+        photoData: Data? = nil,
+        requestedBy requesterID: String
+    ) async throws {
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+            try await self.ensureMember(spaceID: place.spaceID, requesterID: requesterID)
+            try await self.ensurePlaceMatches(placeID: place.id, spaceID: place.spaceID, placeName: place.name)
 
-            guard requesterID == existingRecord.createdBy else {
-                throw Self.makeError("방문 기록을 수정할 권한이 없습니다")
-            }
-
-            try await db.collection("visitRecords").document(record.id).setData(data(for: record), merge: true)
-            try await updatePlaceVisitedState(placeID: record.placeID, isVisited: true, requestedBy: requesterID)
-            isLoading = false
-        } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
-            throw error
-        }
-    }
-
-    func deleteVisitRecord(_ record: VisitRecord, requestedBy requesterID: String) async throws {
-        isLoading = true
-        errorMessage = nil
-
-        do {
-            try ensureWritableUser(requesterID)
-            let existingRecord = try await fetchRecord(id: record.id)
-            try await ensureMember(spaceID: existingRecord.spaceID, requesterID: requesterID)
-
-            guard requesterID == existingRecord.createdBy else {
-                throw Self.makeError("방문 기록을 삭제할 권한이 없습니다")
-            }
-
-            try await db.collection("visitRecords").document(record.id).delete()
-            let snapshot = try await db.collection("visitRecords")
-                .whereField("spaceID", isEqualTo: record.spaceID)
-                .whereField("placeID", isEqualTo: record.placeID)
-                .limit(to: 1)
-                .getDocuments()
-            try await updatePlaceVisitedState(
-                placeID: record.placeID,
-                isVisited: !snapshot.documents.isEmpty,
-                requestedBy: requesterID
+            let target = VisitTarget(spaceID: place.spaceID, placeID: place.id, placeName: place.name, visitedAt: visitedAt)
+            try await self.writeRatedComment(
+                target: target,
+                commentID: UUID().uuidString,
+                body: body,
+                rating: rating,
+                userID: requesterID,
+                createdAt: Date()
             )
-            isLoading = false
-        } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
-            throw error
+            try await self.updatePlaceVisitedState(placeID: place.id, isVisited: true)
+
+            if let photoData {
+                try await self.uploadPhoto(photoData, spaceID: place.spaceID, visitID: target.visitID)
+            }
         }
     }
+
+    func addComment(_ body: String, rating: Int, to visit: VisitRecord, requestedBy requesterID: String) async throws {
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+            try await self.ensureMember(spaceID: visit.spaceID, requesterID: requesterID)
+            try await self.writeRatedComment(
+                target: VisitTarget(spaceID: visit.spaceID, placeID: visit.placeID, placeName: visit.placeName, visitedAt: visit.visitedAt),
+                commentID: UUID().uuidString,
+                body: body,
+                rating: rating,
+                userID: requesterID,
+                createdAt: Date()
+            )
+        }
+    }
+
+    func updateComment(_ comment: VisitComment, body: String, rating: Int, requestedBy requesterID: String) async throws {
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+            guard comment.createdBy == requesterID, !comment.isLegacy else {
+                throw Self.makeError("댓글을 수정할 권한이 없습니다")
+            }
+
+            let rating = Self.clampedRating(rating)
+            let batch = self.db.batch()
+            batch.updateData([
+                "body": body,
+                "rating": rating,
+                "updatedAt": Timestamp(date: Date())
+            ], forDocument: self.commentsCollection(visitID: comment.visitID).document(comment.id))
+            batch.updateData([
+                FieldPath(["ratings", requesterID, comment.id]): rating,
+                "updatedAt": Timestamp(date: Date())
+            ], forDocument: self.db.collection("visitRecords").document(comment.visitID))
+            try await batch.commit()
+        }
+    }
+
+    /// Deletes a comment and its rating. The visit goes away with its last comment.
+    func deleteComment(_ comment: VisitComment, placeID: String, requestedBy requesterID: String) async throws {
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+            guard comment.createdBy == requesterID else {
+                throw Self.makeError("댓글을 삭제할 권한이 없습니다")
+            }
+
+            if comment.isLegacy {
+                try await self.db.collection("visitRecords").document(comment.id).delete()
+            } else {
+                try await self.deleteRatedComment(comment, userID: requesterID)
+            }
+            try await self.updatePlaceVisitedState(placeID: placeID, spaceID: comment.spaceID)
+        }
+    }
+
+    // MARK: - Photo
+
+    /// Uploads a new main photo for the visit, replacing the previous one.
+    func setPhoto(_ imageData: Data, for visit: VisitRecord, requestedBy requesterID: String) async throws {
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+            try await self.ensureMember(spaceID: visit.spaceID, requesterID: requesterID)
+            try await self.uploadPhoto(imageData, spaceID: visit.spaceID, visitID: visit.id)
+        }
+    }
+
+    func removePhoto(from visit: VisitRecord, requestedBy requesterID: String) async throws {
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+            try await self.ensureMember(spaceID: visit.spaceID, requesterID: requesterID)
+
+            let visitRef = self.db.collection("visitRecords").document(visit.id)
+            let oldPath = try await visitRef.getDocument().data()?["photoPath"] as? String
+            try await visitRef.updateData([
+                "photoURL": FieldValue.delete(),
+                "photoPath": FieldValue.delete(),
+                "updatedAt": Timestamp(date: Date())
+            ])
+            await Self.deletePhotoFile(at: oldPath)
+        }
+    }
+
+    private func uploadPhoto(_ imageData: Data, spaceID: String, visitID: String) async throws {
+        let path = "visitPhotos/\(spaceID)/\(visitID)/\(UUID().uuidString).jpg"
+        let reference = Storage.storage().reference(withPath: path)
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+
+        _ = try await reference.putDataAsync(imageData, metadata: metadata)
+        let downloadURL = try await reference.downloadURL()
+
+        let visitRef = db.collection("visitRecords").document(visitID)
+        let oldPath = try await visitRef.getDocument().data()?["photoPath"] as? String
+
+        do {
+            try await visitRef.updateData([
+                "photoURL": downloadURL.absoluteString,
+                "photoPath": path,
+                "updatedAt": Timestamp(date: Date())
+            ])
+        } catch {
+            await Self.deletePhotoFile(at: path)
+            throw error
+        }
+
+        await Self.deletePhotoFile(at: oldPath)
+    }
+
+    /// Best effort: a leftover file only costs storage, so failures are ignored.
+    private static func deletePhotoFile(at path: String?) async {
+        guard let path, !path.isEmpty else { return }
+        try? await Storage.storage().reference(withPath: path).delete()
+    }
+
+    // MARK: - Listeners
 
     func listenForPlaceRecords(spaceID: String, placeID: String, onChange: @escaping @MainActor ([VisitRecord]) -> Void) -> ListenerRegistration {
-        db.collection("visitRecords")
-            .whereField("spaceID", isEqualTo: spaceID)
-            .whereField("placeID", isEqualTo: placeID)
-            .addSnapshotListener { [weak self] snapshot, error in
-                if let error {
-                    Task { @MainActor in
-                        self?.errorMessage = error.localizedDescription
-                    }
-                    return
-                }
-
-                guard let snapshot else { return }
-                let records = snapshot.documents.compactMap(Self.record(from:))
-                let sortedRecords = records.sorted { $0.visitedAt > $1.visitedAt }
-                Task { @MainActor in
-                    self?.errorMessage = nil
-                    onChange(sortedRecords)
-                }
-            }
+        listenForRecords(
+            query: db.collection("visitRecords")
+                .whereField("spaceID", isEqualTo: spaceID)
+                .whereField("placeID", isEqualTo: placeID),
+            onChange: onChange
+        )
     }
 
     func listenForSpaceRecords(spaceID: String, onChange: @escaping @MainActor ([VisitRecord]) -> Void) -> ListenerRegistration {
-        db.collection("visitRecords")
-            .whereField("spaceID", isEqualTo: spaceID)
+        listenForRecords(
+            query: db.collection("visitRecords").whereField("spaceID", isEqualTo: spaceID),
+            onChange: onChange
+        )
+    }
+
+    func listenForComments(of visit: VisitRecord, onChange: @escaping @MainActor ([VisitComment]) -> Void) -> ListenerRegistration {
+        commentsCollection(visitID: visit.id)
+            .whereField("spaceID", isEqualTo: visit.spaceID)
             .addSnapshotListener { [weak self] snapshot, error in
                 if let error {
                     Task { @MainActor in
@@ -121,49 +201,294 @@ final class VisitRecordService: ObservableObject {
                 }
 
                 guard let snapshot else { return }
-                let records = snapshot.documents.compactMap(Self.record(from:))
-                let sortedRecords = records.sorted { lhs, rhs in
-                    if lhs.visitedAt == rhs.visitedAt {
-                        return lhs.createdAt > rhs.createdAt
-                    }
-                    return lhs.visitedAt > rhs.visitedAt
-                }
+                let comments = snapshot.documents
+                    .compactMap { Self.comment(from: $0, visitID: visit.id) }
+                    .sorted { $0.createdAt < $1.createdAt }
                 Task { @MainActor in
-                    self?.errorMessage = nil
-                    onChange(sortedRecords)
+                    onChange(comments)
                 }
             }
     }
 
-    private func updatePlaceVisitedState(placeID: String, isVisited: Bool, requestedBy requesterID: String) async throws {
+    private func listenForRecords(query: Query, onChange: @escaping @MainActor ([VisitRecord]) -> Void) -> ListenerRegistration {
+        query.addSnapshotListener { [weak self] snapshot, error in
+            if let error {
+                Task { @MainActor in
+                    self?.errorMessage = error.localizedDescription
+                }
+                return
+            }
+
+            guard let snapshot else { return }
+            let records = Self.mergedRecords(from: snapshot.documents)
+            Task { @MainActor in
+                self?.errorMessage = nil
+                onChange(records)
+            }
+        }
+    }
+
+    // MARK: - Legacy migration
+
+    /// Converts the requester's old one-per-person records in a space into
+    /// rated comments on the shared visit for that day.
+    func migrateLegacyRecords(spaceID: String, userID: String) async {
+        guard !userID.isEmpty, userID != Self.guestUserID else { return }
+        guard !Self.migratingSpaceIDs.contains(spaceID) else { return }
+        Self.migratingSpaceIDs.insert(spaceID)
+        defer { Self.migratingSpaceIDs.remove(spaceID) }
+
+        guard let snapshot = try? await db.collection("visitRecords")
+            .whereField("spaceID", isEqualTo: spaceID)
+            .getDocuments() else { return }
+
+        for document in snapshot.documents {
+            let data = document.data()
+            guard
+                Self.isLegacy(data),
+                data["createdBy"] as? String == userID,
+                let placeID = data["placeID"] as? String,
+                let placeName = data["placeName"] as? String,
+                let visitedAt = (data["visitedAt"] as? Timestamp)?.dateValue()
+            else { continue }
+
+            do {
+                // Reusing the old document ID keeps a retried migration idempotent.
+                try await writeRatedComment(
+                    target: VisitTarget(spaceID: spaceID, placeID: placeID, placeName: placeName, visitedAt: visitedAt),
+                    commentID: document.documentID,
+                    body: Self.legacyCommentBody(from: data),
+                    rating: data["rating"] as? Int ?? 5,
+                    userID: userID,
+                    createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? visitedAt
+                )
+                try await document.reference.delete()
+            } catch {
+                // Leave the old record in place; it still shows up and the next launch retries.
+                continue
+            }
+        }
+    }
+
+    // MARK: - Cleanup helpers used by place/space/account deletion
+
+    /// Deletes visit documents together with their comment subcollections.
+    static func deleteVisits(_ documents: [QueryDocumentSnapshot], db: Firestore) async throws {
+        for document in documents {
+            let spaceID = document.data()["spaceID"] as? String ?? ""
+            let comments = try await document.reference.collection("comments")
+                .whereField("spaceID", isEqualTo: spaceID)
+                .getDocuments()
+            for comment in comments.documents {
+                try await comment.reference.delete()
+            }
+            try await document.reference.delete()
+            await deletePhotoFile(at: document.data()["photoPath"] as? String)
+        }
+    }
+
+    /// Removes one member's comments and ratings from every visit in a space.
+    static func removeParticipation(of userID: String, inSpace spaceID: String, db: Firestore) async throws {
+        let snapshot = try await db.collection("visitRecords")
+            .whereField("spaceID", isEqualTo: spaceID)
+            .getDocuments()
+
+        for document in snapshot.documents {
+            let data = document.data()
+            if isLegacy(data) {
+                if data["createdBy"] as? String == userID {
+                    try await document.reference.delete()
+                }
+                continue
+            }
+
+            let myComments = try await document.reference.collection("comments")
+                .whereField("spaceID", isEqualTo: spaceID)
+                .whereField("createdBy", isEqualTo: userID)
+                .getDocuments()
+            for comment in myComments.documents {
+                try await comment.reference.delete()
+            }
+
+            let ratings = parseRatings(data["ratings"])
+            if ratings.keys.allSatisfy({ $0 == userID }) {
+                try await document.reference.delete()
+                await deletePhotoFile(at: data["photoPath"] as? String)
+            } else if ratings[userID] != nil {
+                try await document.reference.updateData([
+                    FieldPath(["ratings", userID]): FieldValue.delete(),
+                    "updatedAt": Timestamp(date: Date())
+                ])
+            }
+        }
+    }
+
+    // MARK: - Private
+
+    private func perform(_ operation: () async throws -> Void) async throws {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            try await operation()
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    /// Writes the comment and mirrors its rating onto the visit in one transaction,
+    /// creating the visit first if needed so two members recording at once share it.
+    private func writeRatedComment(
+        target: VisitTarget,
+        commentID: String,
+        body: String,
+        rating: Int,
+        userID: String,
+        createdAt: Date
+    ) async throws {
+        let visitID = target.visitID
+        let visitRef = db.collection("visitRecords").document(visitID)
+        let commentRef = commentsCollection(visitID: visitID).document(commentID)
+        let rating = Self.clampedRating(rating)
+        let commentData: [String: Any] = [
+            "visitID": visitID,
+            "spaceID": target.spaceID,
+            "placeID": target.placeID,
+            "body": body,
+            "rating": rating,
+            "createdBy": userID,
+            "createdAt": Timestamp(date: createdAt)
+        ]
+
+        _ = try await db.runTransaction { transaction, errorPointer in
+            let snapshot: DocumentSnapshot
+            do {
+                snapshot = try transaction.getDocument(visitRef)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+
+            if snapshot.exists {
+                transaction.updateData([
+                    FieldPath(["ratings", userID, commentID]): rating,
+                    "updatedAt": Timestamp(date: Date())
+                ], forDocument: visitRef)
+            } else {
+                transaction.setData([
+                    "id": visitID,
+                    "spaceID": target.spaceID,
+                    "placeID": target.placeID,
+                    "placeName": target.placeName,
+                    "visitedAt": Timestamp(date: VisitRecord.normalizedVisitDate(target.visitedAt)),
+                    "ratings": [userID: [commentID: rating]],
+                    "createdBy": userID,
+                    "createdAt": Timestamp(date: createdAt),
+                    "updatedAt": Timestamp(date: Date())
+                ], forDocument: visitRef)
+            }
+            transaction.setData(commentData, forDocument: commentRef)
+            return nil
+        }
+    }
+
+    private func deleteRatedComment(_ comment: VisitComment, userID: String) async throws {
+        let visitRef = db.collection("visitRecords").document(comment.visitID)
+        let commentRef = commentsCollection(visitID: comment.visitID).document(comment.id)
+
+        // Returns the photo path when the visit itself was deleted.
+        let deletedPhotoPath = try await db.runTransaction { transaction, errorPointer -> Any? in
+            let snapshot: DocumentSnapshot
+            do {
+                snapshot = try transaction.getDocument(visitRef)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+
+            transaction.deleteDocument(commentRef)
+            guard snapshot.exists else { return nil }
+
+            let ratings = Self.parseRatings(snapshot.data()?["ratings"])
+            let myRemaining = (ratings[userID] ?? [:]).filter { $0.key != comment.id }
+            let othersRemain = ratings.contains { $0.key != userID }
+
+            if myRemaining.isEmpty && !othersRemain {
+                transaction.deleteDocument(visitRef)
+                return snapshot.data()?["photoPath"]
+            } else if myRemaining.isEmpty {
+                transaction.updateData([
+                    FieldPath(["ratings", userID]): FieldValue.delete(),
+                    "updatedAt": Timestamp(date: Date())
+                ], forDocument: visitRef)
+            } else {
+                transaction.updateData([
+                    FieldPath(["ratings", userID, comment.id]): FieldValue.delete(),
+                    "updatedAt": Timestamp(date: Date())
+                ], forDocument: visitRef)
+            }
+            return nil
+        }
+
+        await Self.deletePhotoFile(at: deletedPhotoPath as? String)
+    }
+
+    private func updatePlaceVisitedState(placeID: String, spaceID: String) async throws {
+        let snapshot = try await db.collection("visitRecords")
+            .whereField("spaceID", isEqualTo: spaceID)
+            .whereField("placeID", isEqualTo: placeID)
+            .limit(to: 1)
+            .getDocuments()
+        try await updatePlaceVisitedState(placeID: placeID, isVisited: !snapshot.documents.isEmpty)
+    }
+
+    private func updatePlaceVisitedState(placeID: String, isVisited: Bool) async throws {
         let placeSnapshot = try await db.collection("places").document(placeID).getDocument()
-        guard
-            placeSnapshot.exists,
-            let spaceID = placeSnapshot.data()?["spaceID"] as? String
-        else {
+        guard placeSnapshot.exists else {
             throw Self.makeError("장소를 찾을 수 없습니다")
         }
 
-        try await ensureMember(spaceID: spaceID, requesterID: requesterID)
         try await db.collection("places").document(placeID).updateData([
             "isVisited": isVisited
         ])
     }
 
-    private func data(for record: VisitRecord) -> [String: Any] {
-        [
-            "id": record.id,
-            "placeID": record.placeID,
-            "spaceID": record.spaceID,
-            "placeName": record.placeName,
-            "title": record.title,
-            "body": record.body as Any,
-            "rating": record.rating,
-            "photoURLs": record.photoURLs,
-            "visitedAt": Timestamp(date: record.visitedAt),
-            "createdBy": record.createdBy,
-            "createdAt": Timestamp(date: record.createdAt)
-        ]
+    private func commentsCollection(visitID: String) -> CollectionReference {
+        db.collection("visitRecords").document(visitID).collection("comments")
+    }
+
+    private static func mergedRecords(from documents: [QueryDocumentSnapshot]) -> [VisitRecord] {
+        var recordsByID: [String: VisitRecord] = [:]
+
+        for document in documents {
+            guard let record = record(from: document) else { continue }
+
+            if var existing = recordsByID[record.id] {
+                for (userID, userRatings) in record.ratings {
+                    existing.ratings[userID, default: [:]].merge(userRatings) { current, _ in current }
+                }
+                existing.legacyComments.append(contentsOf: record.legacyComments)
+                if record.legacyComments.isEmpty {
+                    // Prefer the shared visit document's metadata over a legacy one.
+                    existing.createdBy = record.createdBy
+                    existing.photoURL = record.photoURL
+                    existing.photoPath = record.photoPath
+                }
+                existing.createdAt = min(existing.createdAt, record.createdAt)
+                recordsByID[record.id] = existing
+            } else {
+                recordsByID[record.id] = record
+            }
+        }
+
+        return recordsByID.values.sorted { lhs, rhs in
+            if lhs.visitedAt == rhs.visitedAt {
+                return lhs.createdAt > rhs.createdAt
+            }
+            return lhs.visitedAt > rhs.visitedAt
+        }
     }
 
     private static func record(from document: QueryDocumentSnapshot) -> VisitRecord? {
@@ -173,29 +498,98 @@ final class VisitRecordService: ObservableObject {
             let placeID = data["placeID"] as? String,
             let spaceID = data["spaceID"] as? String,
             let placeName = data["placeName"] as? String,
-            let title = data["title"] as? String,
-            let rating = data["rating"] as? Int,
-            let visitedAtTS = data["visitedAt"] as? Timestamp,
+            let visitedAt = (data["visitedAt"] as? Timestamp)?.dateValue(),
             let createdBy = data["createdBy"] as? String
         else {
             return nil
         }
 
-        let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? visitedAtTS.dateValue()
+        let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? visitedAt
+        let visitID = VisitRecord.id(spaceID: spaceID, placeID: placeID, visitedAt: visitedAt)
+
+        if isLegacy(data) {
+            let rating = data["rating"] as? Int ?? 5
+            return VisitRecord(
+                id: visitID,
+                placeID: placeID,
+                spaceID: spaceID,
+                placeName: placeName,
+                visitedAt: VisitRecord.normalizedVisitDate(visitedAt),
+                ratings: [createdBy: [document.documentID: rating]],
+                createdBy: createdBy,
+                createdAt: createdAt,
+                legacyComments: [
+                    VisitComment(
+                        id: document.documentID,
+                        visitID: visitID,
+                        spaceID: spaceID,
+                        body: legacyCommentBody(from: data),
+                        rating: rating,
+                        createdBy: createdBy,
+                        createdAt: createdAt,
+                        isLegacy: true
+                    )
+                ]
+            )
+        }
 
         return VisitRecord(
             id: document.documentID,
             placeID: placeID,
             spaceID: spaceID,
             placeName: placeName,
-            title: title,
-            body: data["body"] as? String,
-            rating: rating,
-            photoURLs: data["photoURLs"] as? [String] ?? [],
-            visitedAt: visitedAtTS.dateValue(),
+            visitedAt: visitedAt,
+            ratings: parseRatings(data["ratings"]),
             createdBy: createdBy,
-            createdAt: createdAt
+            createdAt: createdAt,
+            photoURL: data["photoURL"] as? String,
+            photoPath: data["photoPath"] as? String
         )
+    }
+
+    private static func parseRatings(_ value: Any?) -> [String: [String: Int]] {
+        guard let raw = value as? [String: Any] else { return [:] }
+        return raw.compactMapValues { userRatings -> [String: Int]? in
+            guard let userRatings = userRatings as? [String: Any] else { return nil }
+            let parsed = userRatings.compactMapValues { ($0 as? NSNumber)?.intValue }
+            return parsed.isEmpty ? nil : parsed
+        }
+    }
+
+    private static func comment(from document: QueryDocumentSnapshot, visitID: String) -> VisitComment? {
+        let data = document.data()
+        guard
+            let spaceID = data["spaceID"] as? String,
+            let body = data["body"] as? String,
+            let createdBy = data["createdBy"] as? String
+        else {
+            return nil
+        }
+
+        return VisitComment(
+            id: document.documentID,
+            visitID: visitID,
+            spaceID: spaceID,
+            body: body,
+            rating: (data["rating"] as? NSNumber)?.intValue ?? 0,
+            createdBy: createdBy,
+            createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
+            updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue()
+        )
+    }
+
+    private static func isLegacy(_ data: [String: Any]) -> Bool {
+        data["ratings"] == nil && data["title"] is String
+    }
+
+    private static func legacyCommentBody(from data: [String: Any]) -> String {
+        let title = (data["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = (data["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return [title, body].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    private static func clampedRating(_ rating: Int) -> Int {
+        min(max(rating, 1), 5)
     }
 
     private func ensureWritableUser(_ requesterID: String) throws {
@@ -218,51 +612,20 @@ final class VisitRecordService: ObservableObject {
         }
     }
 
-    private func ensurePlaceMatchesRecord(_ record: VisitRecord) async throws {
-        let snapshot = try await db.collection("places").document(record.placeID).getDocument()
+    private func ensurePlaceMatches(placeID: String, spaceID: String, placeName: String) async throws {
+        let snapshot = try await db.collection("places").document(placeID).getDocument()
         guard
             snapshot.exists,
             let data = snapshot.data(),
-            let spaceID = data["spaceID"] as? String,
-            let placeName = data["name"] as? String
+            let placeSpaceID = data["spaceID"] as? String,
+            let name = data["name"] as? String
         else {
             throw Self.makeError("장소를 찾을 수 없습니다")
         }
 
-        guard spaceID == record.spaceID, placeName == record.placeName else {
+        guard placeSpaceID == spaceID, name == placeName else {
             throw Self.makeError("방문 기록 대상 장소 정보가 올바르지 않습니다")
         }
-    }
-
-    private func fetchRecord(id: String) async throws -> VisitRecord {
-        let snapshot = try await db.collection("visitRecords").document(id).getDocument()
-        guard
-            snapshot.exists,
-            let data = snapshot.data(),
-            let placeID = data["placeID"] as? String,
-            let spaceID = data["spaceID"] as? String,
-            let placeName = data["placeName"] as? String,
-            let title = data["title"] as? String,
-            let rating = data["rating"] as? Int,
-            let visitedAt = (data["visitedAt"] as? Timestamp)?.dateValue(),
-            let createdBy = data["createdBy"] as? String
-        else {
-            throw Self.makeError("방문 기록을 찾을 수 없습니다")
-        }
-
-        return VisitRecord(
-            id: snapshot.documentID,
-            placeID: placeID,
-            spaceID: spaceID,
-            placeName: placeName,
-            title: title,
-            body: data["body"] as? String,
-            rating: rating,
-            photoURLs: data["photoURLs"] as? [String] ?? [],
-            visitedAt: visitedAt,
-            createdBy: createdBy,
-            createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? visitedAt
-        )
     }
 
     private static func makeError(_ message: String) -> NSError {

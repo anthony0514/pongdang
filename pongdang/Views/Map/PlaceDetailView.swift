@@ -36,8 +36,7 @@ struct PlaceDetailView: View {
     @State private var addedByName = "불러오는 중..."
     @State private var visitRecords: [VisitRecord] = []
     @State private var authorNamesByUserID: [String: String] = [:]
-    @State private var recordToEdit: VisitRecord?
-    @State private var recordToDelete: VisitRecord?
+    @State private var selectedVisit: VisitRecord?
 
     @StateObject private var visitRecordService = VisitRecordService()
     @State private var visitRecordListener: ListenerRegistration?
@@ -109,11 +108,11 @@ struct PlaceDetailView: View {
                     .environmentObject(authService)
             }
             .sheet(isPresented: $showingVisitRecordForm) {
-                VisitRecordFormView(place: place, existingRecord: nil)
+                VisitRecordFormView(place: place)
                     .environmentObject(authService)
             }
-            .sheet(item: $recordToEdit) { record in
-                VisitRecordFormView(place: place, existingRecord: record)
+            .navigationDestination(item: $selectedVisit) { visit in
+                VisitDetailView(visit: visit)
                     .environmentObject(authService)
             }
             .task(id: place.addedBy) {
@@ -125,22 +124,12 @@ struct PlaceDetailView: View {
             .task(id: place.id) {
                 listenForVisitRecords()
             }
-            .task(id: visitRecords.map(\.createdBy).joined(separator: "|")) {
+            .task(id: visitRecords.flatMap(\.participantIDs).joined(separator: "|")) {
                 await loadAuthorNamesIfNeeded()
             }
             .onDisappear {
                 visitRecordListener?.remove()
                 visitRecordListener = nil
-            }
-            .alert("방문 기록을 삭제할까요?", isPresented: deleteVisitRecordAlertBinding, presenting: recordToDelete) { record in
-                Button("삭제", role: .destructive) {
-                    deleteVisitRecord(record)
-                }
-                Button("취소", role: .cancel) {
-                    recordToDelete = nil
-                }
-            } message: { record in
-                Text("\"\(record.title)\" 기록을 삭제합니다.")
             }
             .overlay {
                 if placeService.isLoading || visitRecordService.isLoading {
@@ -211,29 +200,17 @@ struct PlaceDetailView: View {
                 } else {
                     ForEach(visitRecords) { record in
                         Button {
-                            recordToEdit = record
+                            selectedVisit = record
                         } label: {
                             VisitRecordListRow(
                                 record: record,
-                                authorName: authorName(for: record)
+                                participantNames: participantNames(for: record)
                             )
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                         .listRowSeparator(.visible)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if record.createdBy == authService.currentUser?.id {
-                                Button("편집") {
-                                    recordToEdit = record
-                                }
-                                .tint(Color(hex: "2F7FB8"))
-
-                                Button("삭제", role: .destructive) {
-                                    recordToDelete = record
-                                }
-                                .tint(.red)
-                            }
-                        }
                     }
                 }
             }
@@ -319,69 +296,31 @@ struct PlaceDetailView: View {
         }
     }
 
-    private func authorName(for record: VisitRecord) -> String? {
-        if record.createdBy == authService.currentUser?.id {
-            return authService.currentUser?.name
+    private func participantNames(for record: VisitRecord) -> [String] {
+        record.participantIDs.compactMap { userID in
+            if userID == authService.currentUser?.id {
+                return authService.currentUser?.name
+            }
+            return authorNamesByUserID[userID]
         }
-
-        return authorNamesByUserID[record.createdBy]
     }
 
     private func loadAuthorNamesIfNeeded() async {
-        let userIDs = Set(
-            visitRecords
-                .map(\.createdBy)
-                .filter { $0 != authService.currentUser?.id && authorNamesByUserID[$0] == nil }
-        )
-
-        guard !userIDs.isEmpty else { return }
-
-        for userID in userIDs {
-            do {
-                let snapshot = try await Firestore.firestore()
-                    .collection("users")
-                    .document(userID)
-                    .getDocument()
-
-                if let name = snapshot.data()?["name"] as? String, !name.isEmpty {
-                    authorNamesByUserID[userID] = name
-                } else {
-                    authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
-                }
-            } catch {
-                authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
-            }
+        var known = authorNamesByUserID
+        if let currentUserID = authService.currentUser?.id {
+            known[currentUserID] = ""
         }
+        let loaded = await UserNameLoader.loadNames(
+            for: visitRecords.flatMap(\.participantIDs),
+            excluding: known
+        )
+        authorNamesByUserID.merge(loaded) { current, _ in current }
     }
 
     private var canManagePlace: Bool {
         let currentUserID = authService.currentUser?.id
         let ownerID = spaceService.activeSpace?.createdBy
         return currentUserID == place.addedBy || currentUserID == ownerID
-    }
-
-    private var deleteVisitRecordAlertBinding: Binding<Bool> {
-        Binding(
-            get: { recordToDelete != nil },
-            set: { newValue in
-                if !newValue {
-                    recordToDelete = nil
-                }
-            }
-        )
-    }
-
-    private func deleteVisitRecord(_ record: VisitRecord) {
-        Task {
-            do {
-                try await visitRecordService.deleteVisitRecord(
-                    record,
-                    requestedBy: authService.currentUser?.id ?? ""
-                )
-                recordToDelete = nil
-            } catch {
-            }
-        }
     }
 
     private func deletePlace() {
@@ -444,60 +383,48 @@ struct PlaceDetailView: View {
 
 private struct VisitRecordListRow: View {
     let record: VisitRecord
-    let authorName: String?
+    let participantNames: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(record.title)
+        HStack(alignment: .center, spacing: 12) {
+            if let photoURL = record.photoURL {
+                VisitPhotoView(url: URL(string: photoURL), size: 48, cornerRadius: 10)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(Self.dateFormatter.string(from: record.visitedAt))
                     .font(.headline)
 
-                Spacer()
+                if !participantNames.isEmpty {
+                    Text(participantNames.joined(separator: ", "))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
 
-                Text(Self.dateFormatter.string(from: record.visitedAt))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
 
-                Text("\(record.rating)점")
-                    .font(.caption)
-                    .fontWeight(.semibold)
+            if let average = record.averageRating {
+                Label(String(format: "%.1f", average), systemImage: "star.fill")
+                    .font(.caption.weight(.semibold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color(.secondarySystemBackground))
                     .clipShape(Capsule())
             }
 
-            if let body = record.body, !body.isEmpty {
-                HStack(alignment: .bottom, spacing: 12) {
-                    Text(body)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Spacer(minLength: 8)
-
-                    if let authorName, !authorName.isEmpty {
-                        Text(authorName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-            } else if let authorName, !authorName.isEmpty {
-                HStack {
-                    Spacer()
-
-                    Text(authorName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
     }
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy.MM.dd"
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "yyyy.MM.dd (E)"
         return formatter
     }()
 }

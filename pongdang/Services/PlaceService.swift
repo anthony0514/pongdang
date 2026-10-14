@@ -72,9 +72,7 @@ final class PlaceService: ObservableObject {
                 .whereField("placeID", isEqualTo: id)
                 .getDocuments()
 
-            for document in recordSnapshot.documents {
-                try await document.reference.delete()
-            }
+            try await VisitRecordService.deleteVisits(recordSnapshot.documents, db: db)
 
             try await db.collection("places").document(id).delete()
             isLoading = false
@@ -229,12 +227,8 @@ final class PlaceService: ObservableObject {
                     .whereField("placeID", isEqualTo: placeID)
                     .getDocuments()
 
-                let batch = db.batch()
-                for document in recordSnapshot.documents {
-                    batch.deleteDocument(document.reference)
-                }
-                batch.deleteDocument(db.collection("places").document(placeID))
-                try await batch.commit()
+                try await VisitRecordService.deleteVisits(recordSnapshot.documents, db: db)
+                try await db.collection("places").document(placeID).delete()
             }
 
             isLoading = false

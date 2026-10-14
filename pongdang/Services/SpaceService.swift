@@ -217,12 +217,12 @@ final class SpaceService: ObservableObject {
                 .whereField("placeID", isEqualTo: placeDocument.documentID)
                 .getDocuments()
 
-            for recordDocument in recordSnapshot.documents {
-                try await recordDocument.reference.delete()
-            }
+            try await VisitRecordService.deleteVisits(recordSnapshot.documents, db: db)
 
             try await placeDocument.reference.delete()
         }
+
+        try await ActivityService.deleteActivities(spaceID: spaceID, db: db)
 
         let inviteSnapshot = try await db.collection("inviteCodes")
             .whereField("spaceID", isEqualTo: spaceID)

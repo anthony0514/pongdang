@@ -137,7 +137,7 @@ struct MapView: View {
     @ViewBuilder
     private var visitRecordSheet: some View {
         if let selectedPlace {
-            VisitRecordFormView(place: selectedPlace, existingRecord: nil)
+            VisitRecordFormView(place: selectedPlace)
                 .environmentObject(authService)
         }
     }

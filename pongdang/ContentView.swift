@@ -25,6 +25,13 @@ struct ContentView: View {
                 .onAppear {
                     spaceService.fetchSpaces(for: authService.currentUser!.id)
                 }
+                .task(id: spaceService.spaces.map(\.id)) {
+                    guard let userID = authService.currentUser?.id else { return }
+                    let visitRecordService = VisitRecordService()
+                    for space in spaceService.spaces {
+                        await visitRecordService.migrateLegacyRecords(spaceID: space.id, userID: userID)
+                    }
+                }
                 .onChange(of: scenePhase) { _, phase in
                     guard phase == .active, let userID = authService.currentUser?.id else { return }
                     spaceService.fetchSpaces(for: userID)

@@ -213,12 +213,12 @@ class AuthService: ObservableObject {
                         .whereField("placeID", isEqualTo: placeDocument.documentID)
                         .getDocuments()
 
-                    for recordDocument in recordSnapshot.documents {
-                        try await recordDocument.reference.delete()
-                    }
+                    try await VisitRecordService.deleteVisits(recordSnapshot.documents, db: db)
 
                     try await placeDocument.reference.delete()
                 }
+
+                try await ActivityService.deleteActivities(spaceID: spaceID, db: db)
 
                 let inviteCodesSnapshot = try await db.collection("inviteCodes")
                     .whereField("spaceID", isEqualTo: spaceID)
@@ -253,9 +253,7 @@ class AuthService: ObservableObject {
                     .whereField("placeID", isEqualTo: placeDocument.documentID)
                     .getDocuments()
 
-                for recordDocument in recordSnapshot.documents {
-                    try await recordDocument.reference.delete()
-                }
+                try await VisitRecordService.deleteVisits(recordSnapshot.documents, db: db)
 
                 try await placeDocument.reference.delete()
             }
@@ -265,34 +263,19 @@ class AuthService: ObservableObject {
                 .getDocuments()
 
             for spaceDocument in spacesSnapshot.documents {
-                if createdSpaceIDs.contains(spaceDocument.documentID) {
-                    continue
-                }
-
-                try await spaceDocument.reference.updateData([
-                    "memberIDs": FieldValue.arrayRemove([userID]),
-                    "sharedHomeMemberIDs": FieldValue.arrayRemove([userID])
-                ])
-            }
-
-            for spaceDocument in spacesSnapshot.documents {
                 let spaceID = spaceDocument.documentID
 
                 if createdSpaceIDs.contains(spaceID) {
                     continue
                 }
 
-                let visitRecordsSnapshot = try await db.collection("visitRecords")
-                    .whereField("spaceID", isEqualTo: spaceID)
-                    .getDocuments()
-
-                for recordDocument in visitRecordsSnapshot.documents {
-                    let data = recordDocument.data()
-                    let createdBy = data["createdBy"] as? String
-
-                    guard createdBy == userID else { continue }
-                    try await recordDocument.reference.delete()
-                }
+                // Clean up visit ratings/comments while still a member, then leave.
+                try await VisitRecordService.removeParticipation(of: userID, inSpace: spaceID, db: db)
+                try await ActivityService.deleteActivities(spaceID: spaceID, createdBy: userID, db: db)
+                try await spaceDocument.reference.updateData([
+                    "memberIDs": FieldValue.arrayRemove([userID]),
+                    "sharedHomeMemberIDs": FieldValue.arrayRemove([userID])
+                ])
             }
 
             try await db.collection("users").document(userID).delete()

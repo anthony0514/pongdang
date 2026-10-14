@@ -2,29 +2,24 @@ import SwiftUI
 import FirebaseFirestore
 
 struct HistoryCalendarView: View {
-    struct GroupedVisitRecord: Identifiable {
-        let placeID: String
-        let placeName: String
-        let records: [VisitRecord]
-
-        var id: String { placeID }
-        var count: Int { records.count }
-        var latestVisitedAt: Date { records.map(\.visitedAt).max() ?? .distantPast }
-        var latestRecord: VisitRecord? { records.max(by: { $0.visitedAt < $1.visitedAt }) }
-    }
-
     @EnvironmentObject var spaceService: SpaceService
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var navigationState: AppNavigationState
 
     @StateObject private var viewModel = MapViewModel()
     @StateObject private var visitRecordService = VisitRecordService()
+    @StateObject private var activityService = ActivityService()
 
     @State private var visitRecords: [VisitRecord] = []
     @State private var selectedDate = Date()
     @State private var displayedMonth = Date()
     @State private var visitRecordListener: ListenerRegistration?
     @State private var authorNamesByUserID: [String: String] = [:]
+    @State private var selectedVisit: VisitRecord?
+    @State private var activities: [ActivityRecord] = []
+    @State private var activityListener: ListenerRegistration?
+    @State private var selectedActivity: ActivityRecord?
+    @State private var showingHealthImport = false
 
     var body: some View {
         NavigationStack {
@@ -45,7 +40,8 @@ struct HistoryCalendarView: View {
                                 displayedMonth: $displayedMonth,
                                 selectedDate: $selectedDate,
                                 highlightedDates: highlightedDates,
-                                plannedDates: plannedDates
+                                plannedDates: plannedDates,
+                                activityDates: activityDates
                             )
                             .frame(height: VisitCalendarMonthView.height(for: displayedMonth))
                             .frame(maxWidth: .infinity)
@@ -53,27 +49,38 @@ struct HistoryCalendarView: View {
                         }
 
                         Section(selectedDateTitle) {
-                            if groupedRecordsForSelectedDate.isEmpty {
+                            if recordsForSelectedDate.isEmpty {
                                 Text("선택한 날짜에는 방문 기록이 없습니다.")
                                     .foregroundStyle(.secondary)
                             } else {
-                                ForEach(groupedRecordsForSelectedDate) { group in
-                                    if let place = placeByID[group.placeID] {
-                                        Button {
-                                            navigationState.showPlaceOnMap(
-                                                placeID: place.id,
-                                                presentDetail: true,
-                                                compactDetailSheet: true
-                                            )
-                                        } label: {
-                                            GroupedVisitRecordRow(group: group, place: place)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                    } else {
-                                        GroupedVisitRecordRow(group: group, place: nil)
+                                ForEach(recordsForSelectedDate) { record in
+                                    Button {
+                                        selectedVisit = record
+                                    } label: {
+                                        CalendarVisitRow(
+                                            record: record,
+                                            place: placeByID[record.placeID],
+                                            participantNames: participantNames(for: record)
+                                        )
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
                                     }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        if !activitiesForSelectedDate.isEmpty {
+                            Section("운동") {
+                                ForEach(activitiesForSelectedDate) { activity in
+                                    Button {
+                                        selectedActivity = activity
+                                    } label: {
+                                        CalendarActivityRow(activity: activity)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -83,31 +90,65 @@ struct HistoryCalendarView: View {
             }
             .navigationTitle("캘린더")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $selectedVisit) { visit in
+                VisitDetailView(visit: visit, onShowPlace: showPlaceAction(for: visit))
+                    .environmentObject(authService)
+            }
+            .navigationDestination(item: $selectedActivity) { activity in
+                ActivityDetailView(activity: activity)
+                    .environmentObject(authService)
+                    .environmentObject(spaceService)
+            }
+            .toolbar {
+                if spaceService.activeSpace != nil && !authService.isGuestUser {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingHealthImport = true
+                        } label: {
+                            Image(systemName: "figure.walk.motion")
+                        }
+                        .accessibilityLabel("건강에서 운동 가져오기")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingHealthImport) {
+                if let space = spaceService.activeSpace {
+                    HealthWorkoutPickerView(space: space)
+                        .environmentObject(authService)
+                }
+            }
             .onAppear {
                 displayedMonth = Self.monthStart(for: selectedDate)
                 if let space = spaceService.activeSpace {
                     viewModel.fetchPlaces(for: space.id)
                     listenForVisitRecords(spaceID: space.id)
+                    listenForActivities(spaceID: space.id)
                 }
             }
             .onChange(of: spaceService.activeSpace) { _, space in
                 if let space {
                     viewModel.fetchPlaces(for: space.id)
                     listenForVisitRecords(spaceID: space.id)
+                    listenForActivities(spaceID: space.id)
                 } else {
                     visitRecords = []
+                    activities = []
                     visitRecordListener?.remove()
                     visitRecordListener = nil
+                    activityListener?.remove()
+                    activityListener = nil
                 }
             }
             .onDisappear {
                 visitRecordListener?.remove()
                 visitRecordListener = nil
+                activityListener?.remove()
+                activityListener = nil
             }
             .onChange(of: selectedDate) { _, newDate in
                 displayedMonth = Self.monthStart(for: newDate)
             }
-            .task(id: visitRecords.map(\.createdBy).joined(separator: "|")) {
+            .task(id: visitRecords.flatMap(\.participantIDs).joined(separator: "|")) {
                 await loadAuthorNamesIfNeeded()
             }
         }
@@ -121,29 +162,30 @@ struct HistoryCalendarView: View {
         visitRecords.filter { Calendar.current.isDate($0.visitedAt, inSameDayAs: selectedDate) }
     }
 
-    private var groupedRecordsForSelectedDate: [GroupedVisitRecord] {
-        let grouped = Dictionary(grouping: recordsForSelectedDate) { record in
-            record.placeID
+    private var activitiesForSelectedDate: [ActivityRecord] {
+        activities.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: selectedDate) }
+    }
+
+    private var activityDates: Set<Date> {
+        Set(activities.map { Calendar.current.startOfDay(for: $0.startedAt) })
+    }
+
+    private func listenForActivities(spaceID: String) {
+        activityListener?.remove()
+        activityListener = activityService.listenForSpaceActivities(spaceID: spaceID) { updated in
+            activities = updated
         }
+    }
 
-        return grouped.compactMap { placeID, records in
-            let sortedRecords = records.sorted { lhs, rhs in
-                if lhs.visitedAt != rhs.visitedAt {
-                    return lhs.visitedAt > rhs.visitedAt
-                }
-                return lhs.createdAt > rhs.createdAt
-            }
-
-            guard let first = sortedRecords.first else { return nil }
-
-            return GroupedVisitRecord(
-                placeID: placeID,
-                placeName: first.placeName,
-                records: sortedRecords
+    private func showPlaceAction(for visit: VisitRecord) -> (() -> Void)? {
+        guard placeByID[visit.placeID] != nil else { return nil }
+        return {
+            selectedVisit = nil
+            navigationState.showPlaceOnMap(
+                placeID: visit.placeID,
+                presentDetail: true,
+                compactDetailSheet: true
             )
-        }
-        .sorted { lhs, rhs in
-            lhs.latestVisitedAt > rhs.latestVisitedAt
         }
     }
 
@@ -176,41 +218,25 @@ struct HistoryCalendarView: View {
         }
     }
 
-    private func authorName(for group: GroupedVisitRecord) -> String? {
-        guard let latestRecord = group.latestRecord else { return nil }
-
-        if latestRecord.createdBy == authService.currentUser?.id {
-            return authService.currentUser?.name
+    private func participantNames(for record: VisitRecord) -> [String] {
+        record.participantIDs.compactMap { userID in
+            if userID == authService.currentUser?.id {
+                return authService.currentUser?.name
+            }
+            return authorNamesByUserID[userID]
         }
-
-        return authorNamesByUserID[latestRecord.createdBy]
     }
 
     private func loadAuthorNamesIfNeeded() async {
-        let userIDs = Set(
-            visitRecords
-                .map(\.createdBy)
-                .filter { $0 != authService.currentUser?.id && authorNamesByUserID[$0] == nil }
-        )
-
-        guard !userIDs.isEmpty else { return }
-
-        for userID in userIDs {
-            do {
-                let snapshot = try await Firestore.firestore()
-                    .collection("users")
-                    .document(userID)
-                    .getDocument()
-
-                if let name = snapshot.data()?["name"] as? String, !name.isEmpty {
-                    authorNamesByUserID[userID] = name
-                } else {
-                    authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
-                }
-            } catch {
-                authorNamesByUserID[userID] = userID == "guest-user" ? "익명" : "알 수 없음"
-            }
+        var known = authorNamesByUserID
+        if let currentUserID = authService.currentUser?.id {
+            known[currentUserID] = ""
         }
+        let loaded = await UserNameLoader.loadNames(
+            for: visitRecords.flatMap(\.participantIDs),
+            excluding: known
+        )
+        authorNamesByUserID.merge(loaded) { current, _ in current }
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -226,32 +252,44 @@ struct HistoryCalendarView: View {
     }
 }
 
-private struct GroupedVisitRecordRow: View {
-    let group: HistoryCalendarView.GroupedVisitRecord
+private struct CalendarVisitRow: View {
+    let record: VisitRecord
     let place: Place?
+    let participantNames: [String]
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 8) {
-                    categoryIcon
+                    if let photoURL = record.photoURL {
+                        VisitPhotoView(url: URL(string: photoURL), size: 34, cornerRadius: 8)
+                    } else {
+                        categoryIcon
+                    }
 
-                    Text(group.placeName)
+                    Text(record.placeName)
                         .font(.headline)
                         .foregroundStyle(.primary)
 
                     Spacer(minLength: 8)
 
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                    if let average = record.averageRating {
+                        Label(String(format: "%.1f", average), systemImage: "star.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
 
-                HStack(spacing: 8) {
-                    Text(Self.dateFormatter.string(from: group.latestVisitedAt))
-                    Text("\(group.count)개 기록")
+                if !participantNames.isEmpty {
+                    Text(participantNames.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 4)
@@ -270,12 +308,35 @@ private struct GroupedVisitRecordRow: View {
                 .foregroundStyle(place?.category.accentColor ?? Color(.systemGray))
         }
     }
+}
 
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy.MM.dd"
-        return formatter
-    }()
+private struct CalendarActivityRow: View {
+    let activity: ActivityRecord
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: activity.activityType.systemImageName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.green)
+                .frame(width: 34, height: 34)
+                .background(Color.green.opacity(0.16), in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(activity.activityType.displayName)
+                    .font(.headline)
+                Text("\(ActivityFormat.distance(activity.distanceMeters)) · \(ActivityFormat.duration(activity.duration))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+    }
 }
 
 private struct VisitCalendarMonthView: View {
@@ -284,6 +345,7 @@ private struct VisitCalendarMonthView: View {
 
     let highlightedDates: Set<Date>
     let plannedDates: Set<Date>
+    let activityDates: Set<Date>
 
     private let calendar = Calendar.current
     private let weekdaySymbols = Calendar.current.shortWeekdaySymbols
@@ -416,6 +478,10 @@ private struct VisitCalendarMonthView: View {
             return Color.accentColor
         }
 
+        if activityDates.contains(day) {
+            return .green
+        }
+
         return .clear
     }
 
@@ -425,7 +491,7 @@ private struct VisitCalendarMonthView: View {
 
         if isSelected(date) {
             Circle().fill(Color.accentColor)
-        } else if highlightedDates.contains(day) || plannedDates.contains(day) {
+        } else if highlightedDates.contains(day) || plannedDates.contains(day) || activityDates.contains(day) {
             Circle().fill(Color(.systemGray5))
         } else {
             Circle().fill(Color.clear)
