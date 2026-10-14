@@ -238,9 +238,7 @@ extension HomeLocationManager: CLLocationManagerDelegate {
         selectedCoordinate = location.coordinate
 
         Task { @MainActor in
-            let request = MKReverseGeocodingRequest(location: location)
-            let mapItem = try? await request?.mapItems.first
-            resolvedAddress = mapItem?.address?.fullAddress ?? mapItem?.address?.shortAddress
+            resolvedAddress = await MapAddressResolver.reverseGeocode(location)
             isLoading = false
         }
     }

@@ -117,10 +117,7 @@ final class MapViewModel: NSObject, ObservableObject {
 
     func reverseGeocode(coordinate: CLLocationCoordinate2D) async -> String? {
         let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let request = MKReverseGeocodingRequest(location: location)
-        let mapItem = try? await request?.mapItems.first
-
-        return preferredAddress(from: mapItem)
+        return await MapAddressResolver.reverseGeocode(location)
     }
 
     func resolveSharedLocation(name: String?, address: String?) async -> SearchResult? {
@@ -223,7 +220,9 @@ final class MapViewModel: NSObject, ObservableObject {
 
         if biasToCurrentRegion {
             request.region = region
-            request.regionPriority = .required
+            if #available(iOS 18.0, *) {
+                request.regionPriority = .required
+            }
         }
 
         if let filter = pointOfInterestFilter(for: query) {
@@ -240,7 +239,7 @@ final class MapViewModel: NSObject, ObservableObject {
                 return SearchResult(
                     name: item.name ?? "장소",
                     address: address,
-                    coordinate: item.location.coordinate
+                    coordinate: MapAddressResolver.coordinate(for: item)
                 )
             }
 
@@ -262,7 +261,7 @@ final class MapViewModel: NSObject, ObservableObject {
                 return SearchResult(
                     name: item.name ?? "장소",
                     address: address,
-                    coordinate: item.location.coordinate
+                    coordinate: MapAddressResolver.coordinate(for: item)
                 )
             }
 
@@ -403,19 +402,7 @@ final class MapViewModel: NSObject, ObservableObject {
     }
 
     private func preferredAddress(from mapItem: MKMapItem?) -> String? {
-        guard let address = mapItem?.address else { return nil }
-
-        let fullAddress = address.fullAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !fullAddress.isEmpty {
-            return fullAddress
-        }
-
-        if let shortAddress = address.shortAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !shortAddress.isEmpty {
-            return shortAddress
-        }
-
-        return nil
+        MapAddressResolver.address(for: mapItem)
     }
 
     private func isAddressMatchAcceptable(input: String, candidate: String) -> Bool {

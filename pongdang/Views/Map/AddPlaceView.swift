@@ -338,7 +338,7 @@ struct AddPlaceView: View {
                 let candidates = response.mapItems.compactMap { item -> (address: String, name: String, coordinate: CLLocationCoordinate2D)? in
                     let candidateAddress = preferredAddress(from: item)
                     guard !candidateAddress.isEmpty else { return nil }
-                    return (candidateAddress, item.name ?? "", item.location.coordinate)
+                    return (candidateAddress, item.name ?? "", MapAddressResolver.coordinate(for: item))
                 }
 
                 let normalizedInputAddress = normalizedAddressString(addressCandidate)
@@ -495,18 +495,6 @@ struct AddPlaceView: View {
     }
 
     private func preferredAddress(from mapItem: MKMapItem) -> String {
-        guard let address = mapItem.address else { return "" }
-
-        let fullAddress = address.fullAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !fullAddress.isEmpty {
-            return fullAddress
-        }
-
-        if let shortAddress = address.shortAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !shortAddress.isEmpty {
-            return shortAddress
-        }
-
-        return ""
+        MapAddressResolver.address(for: mapItem) ?? ""
     }
 }
