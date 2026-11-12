@@ -530,7 +530,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = pongdang/pongdang.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = C93BJL2HKK;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -538,6 +538,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "퐁당";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "건강 앱에 기록된 운동과 이동 경로를 불러와, 선택한 운동을 스페이스 멤버와 공유하기 위해 필요합니다.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "퐁당은 건강 앱에 데이터를 기록하지 않습니다. 운동 기록과 이동 경로는 읽기만 합니다.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "지도에서 현재 위치를 표시하고 내 위치로 이동하기 위해 위치 접근 권한이 필요합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "공유 카드 이미지를 사진 앱에 저장하기 위해 필요합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -549,7 +550,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -570,7 +571,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = pongdang/pongdang.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = C93BJL2HKK;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -578,6 +579,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "퐁당";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "건강 앱에 기록된 운동과 이동 경로를 불러와, 선택한 운동을 스페이스 멤버와 공유하기 위해 필요합니다.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "퐁당은 건강 앱에 데이터를 기록하지 않습니다. 운동 기록과 이동 경로는 읽기만 합니다.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "지도에서 현재 위치를 표시하고 내 위치로 이동하기 위해 위치 접근 권한이 필요합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "공유 카드 이미지를 사진 앱에 저장하기 위해 필요합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -589,7 +591,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -692,7 +694,7 @@
 				CODE_SIGN_ENTITLEMENTS = pongdangShareExtension/pongdangShareExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = C93BJL2HKK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = pongdangShareExtension/Info.plist;
@@ -703,7 +705,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang.pongdangShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -723,7 +725,7 @@
 				CODE_SIGN_ENTITLEMENTS = pongdangShareExtension/pongdangShareExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = C93BJL2HKK;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = pongdangShareExtension/Info.plist;
@@ -734,7 +736,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = anthony.pongdang.pongdangShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
