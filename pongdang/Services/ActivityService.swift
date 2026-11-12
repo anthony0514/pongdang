@@ -70,6 +70,24 @@ final class ActivityService: ObservableObject {
         }
     }
 
+    /// Shows the walk on another day in the calendar. Passing the day it started
+    /// (or nil) clears the override. Any space member can do this.
+    func setCalendarDate(_ date: Date?, for activity: ActivityRecord, requestedBy requesterID: String) async throws {
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+
+            let value: Any
+            if let date, !Calendar.current.isDate(date, inSameDayAs: activity.startedAt) {
+                value = Timestamp(date: Calendar.current.startOfDay(for: date))
+            } else {
+                value = FieldValue.delete()
+            }
+            try await self.db.collection("activities").document(activity.id).updateData([
+                "calendarDate": value
+            ])
+        }
+    }
+
     // MARK: - Photo
 
     func setPhoto(_ imageData: Data, for activity: ActivityRecord, requestedBy requesterID: String) async throws {
@@ -300,7 +318,8 @@ final class ActivityService: ObservableObject {
             createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? startedAt,
             photoURL: data["photoURL"] as? String,
             photoPath: data["photoPath"] as? String,
-            customTitle: (data["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            customTitle: (data["title"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            calendarDate: (data["calendarDate"] as? Timestamp)?.dateValue()
         )
     }
 

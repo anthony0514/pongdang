@@ -111,6 +111,78 @@ final class VisitRecordService: ObservableObject {
         }
     }
 
+    // MARK: - Date
+
+    /// More comments than this would exceed what one security-rule check can verify.
+    static let maxCommentsPerMove = 6
+
+    /// Moves the visit to another day, keeping every member's comments and
+    /// ratings and the photo. Any space member can do this.
+    ///
+    /// A visit's ID contains its day, so the visit is copied to the new ID and the
+    /// old one is deleted in a single batch. A `visitMoves/{oldID}` marker in the
+    /// same batch lets the security rules check the copy before allowing the delete.
+    func moveVisit(_ visit: VisitRecord, to newDate: Date, requestedBy requesterID: String) async throws -> VisitRecord {
+        var moved = visit
+        try await perform {
+            try self.ensureWritableUser(requesterID)
+            try await self.ensureMember(spaceID: visit.spaceID, requesterID: requesterID)
+            guard visit.legacyComments.isEmpty else {
+                throw Self.makeError("예전 형식 기록이 남아 있어 아직 날짜를 바꿀 수 없어요. 작성한 사람이 앱을 업데이트하면 바꿀 수 있어요.")
+            }
+
+            let newVisitedAt = VisitRecord.normalizedVisitDate(newDate)
+            let newID = VisitRecord.id(spaceID: visit.spaceID, placeID: visit.placeID, visitedAt: newVisitedAt)
+            guard newID != visit.id else { return }
+
+            let oldRef = self.db.collection("visitRecords").document(visit.id)
+            let newRef = self.db.collection("visitRecords").document(newID)
+
+            if try await newRef.getDocument().exists {
+                throw Self.makeError("그 날짜에 이미 이 장소의 방문 기록이 있어요.")
+            }
+
+            let oldSnapshot = try await oldRef.getDocument()
+            guard var visitData = oldSnapshot.data() else {
+                throw Self.makeError("방문 기록을 찾을 수 없어요.")
+            }
+
+            let comments = try await self.commentsCollection(visitID: visit.id)
+                .whereField("spaceID", isEqualTo: visit.spaceID)
+                .getDocuments()
+            guard comments.documents.count <= Self.maxCommentsPerMove else {
+                throw Self.makeError("댓글이 \(Self.maxCommentsPerMove)개보다 많은 기록은 날짜를 바꿀 수 없어요.")
+            }
+
+            visitData["id"] = newID
+            visitData["visitedAt"] = Timestamp(date: newVisitedAt)
+            visitData["movedFrom"] = visit.id
+            visitData["updatedAt"] = Timestamp(date: Date())
+
+            let batch = self.db.batch()
+            batch.setData([
+                "to": newID,
+                "spaceID": visit.spaceID,
+                "movedBy": requesterID,
+                // Must be the server time: the rules only honor a marker written in this same batch.
+                "movedAt": FieldValue.serverTimestamp()
+            ], forDocument: self.db.collection("visitMoves").document(visit.id))
+            batch.setData(visitData, forDocument: newRef)
+            for comment in comments.documents {
+                var commentData = comment.data()
+                commentData["visitID"] = newID
+                batch.setData(commentData, forDocument: newRef.collection("comments").document(comment.documentID))
+                batch.deleteDocument(comment.reference)
+            }
+            batch.deleteDocument(oldRef)
+            try await batch.commit()
+
+            moved.id = newID
+            moved.visitedAt = newVisitedAt
+        }
+        return moved
+    }
+
     // MARK: - Photo
 
     /// Uploads a new main photo for the visit, replacing the previous one.

@@ -17,6 +17,14 @@ struct ActivityRecord: Identifiable, Hashable {
     var photoURL: String?
     var photoPath: String?
     var customTitle: String?
+    /// The day members chose to show it on, e.g. the evening before for a walk
+    /// that ran past midnight. Nil means the day it started.
+    var calendarDate: Date?
+
+    /// The day it appears on in the calendar.
+    var calendarDay: Date {
+        Calendar.current.startOfDay(for: calendarDate ?? startedAt)
+    }
 
     /// The name members gave it, or the workout type ("걷기") when unnamed.
     var title: String {

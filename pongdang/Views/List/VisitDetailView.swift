@@ -24,6 +24,10 @@ struct VisitDetailView: View {
     @State private var showingPhotoPicker = false
     @State private var showingRemovePhotoAlert = false
     @State private var showingShareSheet = false
+    @State private var showingDateEditor = false
+    /// Set while the visit is being moved to another day, so the listener doesn't
+    /// mistake the old ID disappearing for the visit being deleted.
+    @State private var pendingMoveID: String?
 
     init(visit: VisitRecord, onShowPlace: (() -> Void)? = nil) {
         _visit = State(initialValue: visit)
@@ -72,6 +76,14 @@ struct VisitDetailView: View {
                     titleCard
                 }
 
+                if canEditPhoto {
+                    Button {
+                        showingDateEditor = true
+                    } label: {
+                        Label("방문 날짜 바꾸기", systemImage: "calendar")
+                            .font(.subheadline)
+                    }
+                }
             }
 
             Section(allComments.isEmpty ? "댓글" : "댓글 \(allComments.count)") {
@@ -140,6 +152,15 @@ struct VisitDetailView: View {
         .sheet(item: $editingComment) { comment in
             CommentEditorSheet(editing: comment, showsRating: true) { body, rating in
                 try await updateComment(comment, body: body, rating: rating)
+            }
+        }
+        .sheet(isPresented: $showingDateEditor) {
+            CalendarDateEditorSheet(
+                title: "방문 날짜",
+                message: "모든 멤버의 댓글, 별점, 사진이 함께 옮겨져요. 자정을 넘긴 데이트라면 '하루 전으로'를 눌러주세요.",
+                currentDate: visit.visitedAt
+            ) { newDate in
+                try await moveVisit(to: newDate)
             }
         }
         .photosPicker(isPresented: $showingPhotoPicker, selection: $photoItem, matching: .images)
@@ -233,6 +254,11 @@ struct VisitDetailView: View {
             if let updated = records.first(where: { $0.id == visit.id }) {
                 visit = updated
                 hasLoadedVisit = true
+            } else if let pendingMoveID {
+                // Moving to another day: follow the copy instead of closing.
+                if let moved = records.first(where: { $0.id == pendingMoveID }) {
+                    visit = moved
+                }
             } else if hasLoadedVisit {
                 // The last comment was deleted, so the visit no longer exists.
                 dismiss()
@@ -243,6 +269,15 @@ struct VisitDetailView: View {
         commentListener = visitRecordService.listenForComments(of: visit) { updated in
             comments = updated
         }
+    }
+
+    private func moveVisit(to newDate: Date) async throws {
+        guard let userID = currentUserID else { return }
+        pendingMoveID = VisitRecord.id(spaceID: visit.spaceID, placeID: visit.placeID, visitedAt: newDate)
+        defer { pendingMoveID = nil }
+
+        let moved = try await visitRecordService.moveVisit(visit, to: newDate, requestedBy: userID)
+        visit = moved
     }
 
     private func updateComment(_ comment: VisitComment, body: String, rating: Int) async throws {

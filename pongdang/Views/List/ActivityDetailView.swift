@@ -24,6 +24,7 @@ struct ActivityDetailView: View {
     @State private var showingDeleteAlert = false
     @State private var showingFullMap = false
     @State private var showingTitleEditor = false
+    @State private var showingDateEditor = false
     @State private var draftTitle = ""
     @State private var errorMessage: String?
     @FocusState private var isCommentFieldFocused: Bool
@@ -106,6 +107,12 @@ struct ActivityDetailView: View {
                             } label: {
                                 Label("제목 수정", systemImage: "pencil")
                             }
+
+                            Button {
+                                showingDateEditor = true
+                            } label: {
+                                Label("캘린더 날짜 바꾸기", systemImage: "calendar")
+                            }
                         }
 
                         if canDelete {
@@ -143,6 +150,16 @@ struct ActivityDetailView: View {
             CommentEditorSheet(editing: comment, showsRating: false) { body, _ in
                 guard let userID = currentUserID else { return }
                 try await activityService.updateComment(comment, body: body, requestedBy: userID)
+            }
+        }
+        .sheet(isPresented: $showingDateEditor) {
+            CalendarDateEditorSheet(
+                title: "캘린더 날짜",
+                message: "캘린더에서 이 날짜에 보여요. 실제 운동 시간은 그대로예요. 자정을 넘긴 데이트라면 '하루 전으로'를 눌러주세요.",
+                currentDate: activity.calendarDay,
+                originalDate: activity.startedAt
+            ) { newDate in
+                try await activityService.setCalendarDate(newDate, for: activity, requestedBy: currentUserID ?? "")
             }
         }
         .sheet(isPresented: $showingFullMap) {

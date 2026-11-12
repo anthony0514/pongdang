@@ -181,11 +181,11 @@ struct HistoryCalendarView: View {
     }
 
     private var activitiesForSelectedDate: [ActivityRecord] {
-        activities.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: selectedDate) }
+        activities.filter { Calendar.current.isDate($0.calendarDay, inSameDayAs: selectedDate) }
     }
 
     private var activityDates: Set<Date> {
-        Set(activities.map { Calendar.current.startOfDay(for: $0.startedAt) })
+        Set(activities.map(\.calendarDay))
     }
 
     private func listenForActivities(spaceID: String) {
