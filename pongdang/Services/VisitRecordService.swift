@@ -222,12 +222,25 @@ final class VisitRecordService: ObservableObject {
     func migrateLegacyRecords(spaceID: String, userID: String) async {
         guard !userID.isEmpty, userID != Self.guestUserID else { return }
         guard !Self.migratingSpaceIDs.contains(spaceID) else { return }
+
+        // Once a space has been migrated on this device, skip it on later launches
+        // instead of reading every visit record in the space each time.
+        let doneKey = "legacyVisitMigrationDone.\(userID).\(spaceID)"
+        guard !UserDefaults.standard.bool(forKey: doneKey) else { return }
+
         Self.migratingSpaceIDs.insert(spaceID)
         defer { Self.migratingSpaceIDs.remove(spaceID) }
 
         guard let snapshot = try? await db.collection("visitRecords")
             .whereField("spaceID", isEqualTo: spaceID)
             .getDocuments() else { return }
+
+        var hadFailure = false
+        defer {
+            if !hadFailure {
+                UserDefaults.standard.set(true, forKey: doneKey)
+            }
+        }
 
         for document in snapshot.documents {
             let data = document.data()
@@ -252,6 +265,7 @@ final class VisitRecordService: ObservableObject {
                 try await document.reference.delete()
             } catch {
                 // Leave the old record in place; it still shows up and the next launch retries.
+                hadFailure = true
                 continue
             }
         }

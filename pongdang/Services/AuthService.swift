@@ -311,12 +311,25 @@ class AuthService: ObservableObject {
 
     private func fetchOrCreateUser(uid: String, name: String, photoURL: String?) async {
         let ref = db.collection("users").document(uid)
+
+        // Open the app with the profile saved on the device, then refresh it from
+        // the server below. Waiting for the server first made every launch slow.
+        if let cached = try? await ref.getDocument(source: .cache),
+           cached.exists,
+           let cachedUser = try? cached.data(as: AppUser.self) {
+            currentUser = cachedUser
+            hasResolvedAuthState = true
+        }
+
         do {
             let snapshot = try await ref.getDocument()
             if snapshot.exists, let data = try? snapshot.data(as: AppUser.self) {
                 self.currentUser = data
-                await backfillNotificationFieldsIfNeeded(for: data)
-                await syncCurrentFCMTokenIfNeeded(for: uid)
+                // Housekeeping writes don't need to hold up the first screen.
+                Task {
+                    await backfillNotificationFieldsIfNeeded(for: data)
+                    await syncCurrentFCMTokenIfNeeded(for: uid)
+                }
             } else {
                 let newUser = AppUser(
                     id: uid,
@@ -333,10 +346,15 @@ class AuthService: ObservableObject {
                 )
                 try? ref.setData(from: newUser)
                 self.currentUser = newUser
-                await syncCurrentFCMTokenIfNeeded(for: uid)
+                Task {
+                    await syncCurrentFCMTokenIfNeeded(for: uid)
+                }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            // Offline with a cached profile is fine; only report when there's nothing to show.
+            if currentUser == nil {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
