@@ -16,8 +16,12 @@ struct AddPlaceView: View {
 
     @State private var name = ""
     @State private var address = ""
-    @State private var latitude: Double = 37.5665
-    @State private var longitude: Double = 126.9780
+    /// A real location the place already has: a long-pressed point, coordinates
+    /// from a shared link, or the stored location of the place being edited.
+    @State private var trustedCoordinate: CLLocationCoordinate2D?
+    /// The address at the time `trustedCoordinate` was set. If the user edits the
+    /// address, the location is looked up again.
+    @State private var trustedAddress = ""
     @State private var selectedCategory: PlaceCategory = .restaurant
     @State private var memo = ""
     @State private var sourceURL: String? = nil
@@ -146,21 +150,31 @@ struct AddPlaceView: View {
                 if let placeToEdit {
                     name = placeToEdit.name
                     address = placeToEdit.address
-                    latitude = placeToEdit.latitude
-                    longitude = placeToEdit.longitude
+                    if !PlaceCoordinateResolver.isSuspicious(
+                        latitude: placeToEdit.latitude,
+                        longitude: placeToEdit.longitude,
+                        address: placeToEdit.address
+                    ) {
+                        trustedCoordinate = CLLocationCoordinate2D(
+                            latitude: placeToEdit.latitude,
+                            longitude: placeToEdit.longitude
+                        )
+                        trustedAddress = placeToEdit.address
+                    }
                     selectedCategory = placeToEdit.category
                     memo = placeToEdit.memo ?? ""
                     sourceURL = placeToEdit.sourceURL
                     return
                 }
 
-                if let initialCoordinate {
-                    latitude = initialCoordinate.latitude
-                    longitude = initialCoordinate.longitude
-                }
-
                 if let initialAddress {
                     address = initialAddress
+                }
+
+                if let initialCoordinate,
+                   !PlaceCoordinateResolver.isSuspicious(initialCoordinate, address: initialAddress ?? "") {
+                    trustedCoordinate = initialCoordinate
+                    trustedAddress = initialAddress ?? ""
                 }
 
                 if let initialName, name.isEmpty {
@@ -230,8 +244,8 @@ struct AddPlaceView: View {
             spaceID: spaceID,
             name: trimmedName,
             address: sanitizedAddress,
-            latitude: latitude,
-            longitude: longitude,
+            latitude: 0,  // set below, once the location is resolved
+            longitude: 0,
             category: selectedCategory,
             memo: trimmedMemo.isEmpty ? nil : trimmedMemo,
             sourceURL: sourceURL,
@@ -243,12 +257,19 @@ struct AddPlaceView: View {
         Task {
             isSubmitting = true
             isResolvingCoordinate = true
-            let resolvedCoordinate = await resolvedCoordinateForSave(address: sanitizedAddress)
+            let resolvedCoordinate = await coordinateForSave(name: trimmedName, address: sanitizedAddress)
             isResolvingCoordinate = false
+
+            // Never fall back to the map's default center: that is how places used
+            // to end up pinned on Seoul City Hall.
+            guard let finalCoordinate = resolvedCoordinate else {
+                localErrorMessage = "위치를 찾지 못했어요. 주소를 다시 확인하거나, 지도를 길게 눌러 위치를 직접 찍어서 추가해 주세요."
+                isSubmitting = false
+                return
+            }
 
             do {
                 localErrorMessage = nil
-                let finalCoordinate = resolvedCoordinate ?? CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
                 if isEditing {
                     try await placeService.updatePlace(
                         Place(
@@ -324,6 +345,33 @@ struct AddPlaceView: View {
         return trimmed
     }
 
+    /// Where to pin the place, best source first. Returns nil rather than guess.
+    private func coordinateForSave(name: String, address: String) async -> CLLocationCoordinate2D? {
+        // 1. A real point we already have, as long as the address wasn't changed.
+        let previousAddress = InputSanitizer.sanitize(sanitizedAddressForSave(trustedAddress), as: .address)
+        if let trustedCoordinate, previousAddress == address || address.isEmpty {
+            return trustedCoordinate
+        }
+
+        // 2. The Naver place the user shared, if it still exists.
+        if let coordinate = await PlaceCoordinateResolver.naverCoordinate(from: sourceURL) {
+            return coordinate
+        }
+
+        // 3. The typed address.
+        if let coordinate = await resolvedCoordinateForSave(address: address) {
+            return coordinate
+        }
+
+        // 4. The place name within the address's district.
+        if let coordinate = await PlaceCoordinateResolver.searchByName(name, address: address) {
+            return coordinate
+        }
+
+        // 5. The address was edited but couldn't be found: keep the real point we had.
+        return trustedCoordinate
+    }
+
     private func resolvedCoordinateForSave(address: String) async -> CLLocationCoordinate2D? {
         let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAddress.isEmpty else { return nil }
@@ -332,19 +380,25 @@ struct AddPlaceView: View {
             let request = MKLocalSearch.Request()
             request.naturalLanguageQuery = addressCandidate
             request.resultTypes = [.address, .pointOfInterest]
+            request.region = PlaceCoordinateResolver.koreaRegion
+            if #available(iOS 18.0, *) {
+                request.regionPriority = .required
+            }
 
             do {
                 let response = try await MKLocalSearch(request: request).start()
                 let candidates = response.mapItems.compactMap { item -> (address: String, name: String, coordinate: CLLocationCoordinate2D)? in
                     let candidateAddress = preferredAddress(from: item)
-                    guard !candidateAddress.isEmpty else { return nil }
-                    return (candidateAddress, item.name ?? "", MapAddressResolver.coordinate(for: item))
+                    let coordinate = MapAddressResolver.coordinate(for: item)
+                    guard !candidateAddress.isEmpty,
+                          !PlaceCoordinateResolver.isSuspicious(coordinate, address: addressCandidate) else { return nil }
+                    return (candidateAddress, item.name ?? "", coordinate)
                 }
 
                 let normalizedInputAddress = normalizedAddressString(addressCandidate)
                 let normalizedInputName = normalizedSearchString(name)
 
-                let bestCandidate = candidates.sorted { lhs, rhs in
+                let rankedCandidates = candidates.sorted { lhs, rhs in
                     let lhsAddress = normalizedAddressString(lhs.address)
                     let rhsAddress = normalizedAddressString(rhs.address)
                     let lhsName = normalizedSearchString(lhs.name)
@@ -363,16 +417,16 @@ struct AddPlaceView: View {
                     if lhsNameContains != rhsNameContains { return lhsNameContains < rhsNameContains }
 
                     return lhs.name < rhs.name
-                }.first
+                }
 
-                guard let bestCandidate else { continue }
-
-                let normalizedBestAddress = normalizedAddressString(bestCandidate.address)
-                guard isAddressMatchAcceptable(input: normalizedInputAddress, candidate: normalizedBestAddress) else {
+                // The best-ranked result whose address really matches, not a city or district.
+                guard let match = rankedCandidates.first(where: {
+                    PlaceCoordinateResolver.isAddressMatch(input: addressCandidate, candidate: $0.address)
+                }) else {
                     continue
                 }
 
-                return bestCandidate.coordinate
+                return match.coordinate
             } catch {
                 continue
             }
@@ -382,9 +436,7 @@ struct AddPlaceView: View {
     }
 
     private func normalizedAddressString(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: #"[\s\-\(\)\[\],\.]"#, with: "", options: .regularExpression)
+        PlaceCoordinateResolver.normalizedAddress(value)
     }
 
     private func normalizedSearchString(_ value: String) -> String {
@@ -443,7 +495,7 @@ struct AddPlaceView: View {
 
         guard !normalized.isEmpty else { return "" }
 
-        let fullPattern = #"((?:[가-힣]+도|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+)?((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        let fullPattern = #"((?:[가-힣]+도|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+)?((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+(?:[가-힣0-9]+(?:동|읍|면|리|가)\s+)?([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
         if let regex = try? NSRegularExpression(pattern: fullPattern),
            let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
            match.numberOfRanges >= 6,
@@ -459,7 +511,7 @@ struct AddPlaceView: View {
             ].joined(separator: " ")
         }
 
-        let compactPattern = #"((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        let compactPattern = #"((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+(?:[가-힣0-9]+(?:동|읍|면|리|가)\s+)?([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
         if let regex = try? NSRegularExpression(pattern: compactPattern),
            let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
            match.numberOfRanges >= 5,
@@ -484,15 +536,6 @@ struct AddPlaceView: View {
         return String(trimmed.prefix(28)) + "..."
     }
 
-    private func isAddressMatchAcceptable(input: String, candidate: String) -> Bool {
-        guard !input.isEmpty, !candidate.isEmpty else { return false }
-        if input == candidate { return true }
-        if candidate.contains(input) || input.contains(candidate) { return true }
-
-        let commonPrefixLength = zip(input, candidate).prefix { $0 == $1 }.count
-        let threshold = max(8, Int(Double(input.count) * 0.6))
-        return commonPrefixLength >= threshold
-    }
 
     private func preferredAddress(from mapItem: MKMapItem) -> String {
         MapAddressResolver.address(for: mapItem) ?? ""

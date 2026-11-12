@@ -35,6 +35,12 @@ struct MapView: View {
     @State private var mapSize: CGSize = .zero
     @State private var visitRecordListener: ListenerRegistration?
     @State private var selectedPlace: Place? = nil
+    /// Places within a few meters of each other (same building), drawn as one pin.
+    @State private var placeGroups: [PlaceGroup] = []
+    /// The stacked pin the user tapped, shown as a list to pick from.
+    @State private var selectedGroup: PlaceGroup? = nil
+    /// The place picked from that list; its detail opens once the list closes.
+    @State private var placePickedFromGroup: Place? = nil
     @State private var showingPlaceDetail = false
     @State private var showingVisitRecordForm = false
     @State private var showingAddPlace = false
@@ -124,6 +130,24 @@ struct MapView: View {
             .sheet(isPresented: $showingSpaceSheet) {
                 spaceSheet
             }
+            .sheet(item: $selectedGroup, onDismiss: openPlacePickedFromGroup) { group in
+                PlaceGroupSheet(group: group) { place in
+                    placePickedFromGroup = place
+                    selectedGroup = nil
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.regularMaterial)
+            }
+    }
+
+    private func openPlacePickedFromGroup() {
+        guard let place = placePickedFromGroup else { return }
+        placePickedFromGroup = nil
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+            selectedPlace = place
+            showingPlaceDetail = true
+        }
     }
 
     @ViewBuilder
@@ -198,14 +222,11 @@ struct MapView: View {
                     }
                 }
 
-                ForEach(viewModel.places) { place in
-                    Annotation(place.name, coordinate: place.coordinate) {
-                        PlaceAnnotationView(place: place)
+                ForEach(placeGroups) { group in
+                    Annotation(group.title, coordinate: group.coordinate) {
+                        PlaceGroupAnnotationView(group: group)
                             .onTapGesture {
-                                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                                    selectedPlace = place
-                                    showingPlaceDetail = true
-                                }
+                                handleGroupTap(group)
                             }
                     }
                 }
@@ -243,7 +264,7 @@ struct MapView: View {
             .onChange(of: photoPinOrder) { _, _ in
                 updatePhotoPins(using: proxy)
             }
-            .onChange(of: viewModel.places) { _, _ in
+            .onChange(of: placeGroups) { _, _ in
                 updatePhotoPins(using: proxy)
             }
             .simultaneousGesture(longPressGesture(using: proxy))
@@ -328,7 +349,8 @@ struct MapView: View {
         pendingShareStore.clearPending()
 
         Task {
-            if let lat = pending.latitude, let lng = pending.longitude {
+            if let lat = pending.latitude, let lng = pending.longitude,
+               !PlaceCoordinateResolver.isSuspicious(latitude: lat, longitude: lng, address: pending.address ?? "") {
                 let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
                 await MainActor.run {
                     viewModel.focus(on: coordinate)
@@ -343,7 +365,8 @@ struct MapView: View {
 
             let resolved = await viewModel.resolveSharedLocation(
                 name: pending.name,
-                address: pending.address
+                address: pending.address,
+                sourceURL: pending.sourceURL
             )
 
             await MainActor.run {
@@ -365,6 +388,8 @@ struct MapView: View {
     }
 
     private func handleOnAppear() {
+        placeGroups = PlaceGroup.make(from: viewModel.places)
+
         if let startupCoordinate = appLocationStore.currentCoordinate, viewModel.userLocation == nil {
             viewModel.applyStartupLocation(startupCoordinate)
         }
@@ -412,8 +437,12 @@ struct MapView: View {
     /// Feeds current pin screen positions to the photo simulation. Cheap: one projection per place.
     private func updatePhotoPins(using proxy: MapProxy) {
         var pinCenters: [String: CGPoint] = [:]
-        for place in viewModel.places {
-            pinCenters[place.id] = proxy.convert(place.coordinate, to: .local)
+        // Places in one building share a pin, so their photos float from that pin.
+        for group in placeGroups {
+            let center = proxy.convert(group.coordinate, to: .local)
+            for place in group.places {
+                pinCenters[place.id] = center
+            }
         }
         let photos = photoPinOrder.compactMap { placeID in
             photoURLByPlaceID[placeID].map { (placeID: placeID, url: $0) }
@@ -421,7 +450,20 @@ struct MapView: View {
         photoPins.update(photos: photos, pinCenters: pinCenters, bounds: CGRect(origin: .zero, size: mapSize))
     }
 
+    private func handleGroupTap(_ group: PlaceGroup) {
+        if group.places.count == 1, let place = group.places.first {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                selectedPlace = place
+                showingPlaceDetail = true
+            }
+        } else {
+            selectedGroup = group
+        }
+    }
+
     private func handlePlacesChange(_ places: [Place]) {
+        placeGroups = PlaceGroup.make(from: places)
+
         if let selectedPlace {
             if let updatedPlace = places.first(where: { $0.id == selectedPlace.id }) {
                 self.selectedPlace = updatedPlace
@@ -635,6 +677,135 @@ private struct PlaceAnnotationView: View {
                 .stroke(Color.white.opacity(0.45), lineWidth: 0.8)
         )
         .shadow(color: .black.opacity(0.14), radius: 4, y: 2)
+    }
+}
+
+/// Places close enough to share one pin, typically shops in the same building.
+private struct PlaceGroup: Identifiable, Equatable {
+    /// Places this close (in meters) are drawn as one stacked pin.
+    static let mergeDistance: CLLocationDistance = 20
+
+    let places: [Place]
+
+    var id: String { places.map(\.id).joined(separator: "|") }
+
+    var coordinate: CLLocationCoordinate2D {
+        let count = Double(places.count)
+        return CLLocationCoordinate2D(
+            latitude: places.map(\.latitude).reduce(0, +) / count,
+            longitude: places.map(\.longitude).reduce(0, +) / count
+        )
+    }
+
+    var title: String {
+        guard let first = places.first else { return "" }
+        return places.count == 1 ? first.name : "\(first.name) 외 \(places.count - 1)곳"
+    }
+
+    /// Groups places within `mergeDistance` of a group's first place. Order inside
+    /// a group is stable: most recently added first.
+    static func make(from places: [Place]) -> [PlaceGroup] {
+        var buckets: [(anchor: CLLocation, places: [Place])] = []
+
+        for place in places.sorted(by: { $0.addedAt > $1.addedAt }) {
+            let location = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            if let index = buckets.firstIndex(where: { $0.anchor.distance(from: location) <= mergeDistance }) {
+                buckets[index].places.append(place)
+            } else {
+                buckets.append((location, [place]))
+            }
+        }
+
+        return buckets.map { PlaceGroup(places: $0.places) }
+    }
+}
+
+/// A single pin, or a stacked pin with a count when several places share a spot.
+private struct PlaceGroupAnnotationView: View {
+    let group: PlaceGroup
+
+    var body: some View {
+        if group.places.count == 1, let place = group.places.first {
+            PlaceAnnotationView(place: place)
+        } else if let front = group.places.first {
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    // A second disc peeking out behind reads as "more than one".
+                    Circle()
+                        .fill(group.places[1].category.accentColor.opacity(0.85))
+                        .frame(width: PhotoPinSimulator.pinSize, height: PhotoPinSimulator.pinSize)
+                        .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 0.8))
+                        .offset(x: 4, y: -3)
+
+                    PlaceAnnotationView(place: front)
+                }
+
+                Text("\(group.places.count)")
+                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .frame(minWidth: 15, minHeight: 15)
+                    .background(Capsule().fill(Color.black.opacity(0.78)))
+                    .overlay(Capsule().stroke(Color.white, lineWidth: 1))
+                    .offset(x: 12, y: -11)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(group.title)
+        }
+    }
+}
+
+/// The places behind a stacked pin, to pick one.
+private struct PlaceGroupSheet: View {
+    let group: PlaceGroup
+    let onSelect: (Place) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List(group.places) { place in
+                Button {
+                    onSelect(place)
+                } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(place.category.accentColor)
+                                .frame(width: 32, height: 32)
+                            Image(systemName: place.category.systemImageName)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(place.name)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(place.category.displayName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        if place.isVisited {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Color.clear)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .navigationTitle("이 건물의 장소 \(group.places.count)곳")
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
 

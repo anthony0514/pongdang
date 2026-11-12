@@ -120,16 +120,26 @@ final class MapViewModel: NSObject, ObservableObject {
         return await MapAddressResolver.reverseGeocode(location)
     }
 
-    func resolveSharedLocation(name: String?, address: String?) async -> SearchResult? {
+    /// Finds a shared or stored place's location: the Naver place page first, then
+    /// the address, then the name within the address's district. Never returns the
+    /// map's default center or a point abroad for a Korean address.
+    func resolveSharedLocation(name: String?, address: String?, sourceURL: String? = nil) async -> SearchResult? {
         let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAddress = address?.trimmingCharacters(in: .whitespacesAndNewlines)
         let cacheKey = [
             trimmedName ?? "",
-            trimmedAddress ?? ""
+            trimmedAddress ?? "",
+            sourceURL ?? ""
         ].joined(separator: "|").lowercased()
 
         if let cached = RepairState.resolvedLocationCache[cacheKey] {
             return cached
+        }
+
+        if let coordinate = await PlaceCoordinateResolver.naverCoordinate(from: sourceURL) {
+            let result = SearchResult(name: trimmedName ?? "장소", address: trimmedAddress ?? "", coordinate: coordinate)
+            RepairState.resolvedLocationCache[cacheKey] = result
+            return result
         }
 
         if let trimmedAddress, !trimmedAddress.isEmpty {
@@ -141,8 +151,11 @@ final class MapViewModel: NSObject, ObservableObject {
             }
         }
 
+        // Name search stays inside Korea and the address's district; a worldwide
+        // search used to pin places in Saudi Arabia or the Java Sea.
         if let trimmedName, !trimmedName.isEmpty,
-           let result = await firstSearchResult(for: trimmedName, biasToCurrentRegion: false) {
+           let coordinate = await PlaceCoordinateResolver.searchByName(trimmedName, address: trimmedAddress ?? "") {
+            let result = SearchResult(name: trimmedName, address: trimmedAddress ?? "", coordinate: coordinate)
             RepairState.resolvedLocationCache[cacheKey] = result
             return result
         }
@@ -253,15 +266,21 @@ final class MapViewModel: NSObject, ObservableObject {
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = address
         request.resultTypes = [.address, .pointOfInterest]
+        request.region = PlaceCoordinateResolver.koreaRegion
+        if #available(iOS 18.0, *) {
+            request.regionPriority = .required
+        }
 
         do {
             let response = try await MKLocalSearch(request: request).start()
             let mappedResults: [SearchResult] = response.mapItems.compactMap { item -> SearchResult? in
-                guard let address = preferredAddress(from: item) else { return nil }
+                let coordinate = MapAddressResolver.coordinate(for: item)
+                guard let itemAddress = preferredAddress(from: item),
+                      !PlaceCoordinateResolver.isSuspicious(coordinate, address: address) else { return nil }
                 return SearchResult(
                     name: item.name ?? "장소",
-                    address: address,
-                    coordinate: MapAddressResolver.coordinate(for: item)
+                    address: itemAddress,
+                    coordinate: coordinate
                 )
             }
 
@@ -293,10 +312,8 @@ final class MapViewModel: NSObject, ObservableObject {
                 }
                 .first
 
-            guard let bestMatch else { return nil }
-
-            let bestMatchAddress = normalizedAddressString(bestMatch.address)
-            guard isAddressMatchAcceptable(input: normalizedAddress, candidate: bestMatchAddress) else {
+            guard let bestMatch,
+                  PlaceCoordinateResolver.isAddressMatch(input: address, candidate: bestMatch.address) else {
                 return nil
             }
 
@@ -307,9 +324,7 @@ final class MapViewModel: NSObject, ObservableObject {
     }
 
     private func normalizedAddressString(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: #"[\s\-\(\)\[\],\.]"#, with: "", options: .regularExpression)
+        PlaceCoordinateResolver.normalizedAddress(value)
     }
 
     private func normalizedSearchString(_ value: String) -> String {
@@ -366,7 +381,7 @@ final class MapViewModel: NSObject, ObservableObject {
 
         guard !normalized.isEmpty else { return "" }
 
-        let fullPattern = #"((?:[가-힣]+도|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+)?((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        let fullPattern = #"((?:[가-힣]+도|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+)?((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+(?:[가-힣0-9]+(?:동|읍|면|리|가)\s+)?([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
         if let regex = try? NSRegularExpression(pattern: fullPattern),
            let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
            match.numberOfRanges >= 6,
@@ -382,7 +397,7 @@ final class MapViewModel: NSObject, ObservableObject {
             ].joined(separator: " ")
         }
 
-        let compactPattern = #"((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
+        let compactPattern = #"((?:[가-힣]+시|서울|부산|대구|인천|광주|대전|울산|세종))\s+([가-힣]+(?:구|군))\s+(?:[가-힣0-9]+(?:동|읍|면|리|가)\s+)?([0-9A-Za-z가-힣]+(?:로|길|대로))\s*(\d+(?:-\d+)?)"#
         if let regex = try? NSRegularExpression(pattern: compactPattern),
            let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
            match.numberOfRanges >= 5,
@@ -405,15 +420,6 @@ final class MapViewModel: NSObject, ObservableObject {
         MapAddressResolver.address(for: mapItem)
     }
 
-    private func isAddressMatchAcceptable(input: String, candidate: String) -> Bool {
-        guard !input.isEmpty, !candidate.isEmpty else { return false }
-        if input == candidate { return true }
-        if candidate.contains(input) || input.contains(candidate) { return true }
-
-        let commonPrefixLength = zip(input, candidate).prefix { $0 == $1 }.count
-        let threshold = max(8, Int(Double(input.count) * 0.6))
-        return commonPrefixLength >= threshold
-    }
 
     private func scheduleCoordinateRepairIfNeeded(for places: [Place]) {
         deferredRepairTask?.cancel()
@@ -442,19 +448,14 @@ final class MapViewModel: NSObject, ObservableObject {
         RepairState.repairAttemptsThisLaunch += 1
 
         Task {
-            let resolved = await resolveSharedLocation(name: place.name, address: place.address)
+            let resolved = await resolveSharedLocation(name: place.name, address: place.address, sourceURL: place.sourceURL)
             await MainActor.run {
                 RepairState.repairInFlightPlaceIDs.remove(place.id)
                 RepairState.repairedPlaceIDs.insert(place.id)
             }
 
-            guard let resolved else { return }
-
-            let currentLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-            let resolvedLocation = CLLocation(latitude: resolved.coordinate.latitude, longitude: resolved.coordinate.longitude)
-            let distance = currentLocation.distance(from: resolvedLocation)
-
-            guard distance >= 300 else { return }
+            guard let resolved,
+                  !PlaceCoordinateResolver.isSuspicious(resolved.coordinate, address: place.address) else { return }
 
             try? await db.collection("places").document(place.id).updateData([
                 "latitude": resolved.coordinate.latitude,
@@ -463,14 +464,12 @@ final class MapViewModel: NSObject, ObservableObject {
         }
     }
 
+    /// Only pins that are clearly wrong (the default center, or abroad for a Korean
+    /// address) are repaired. Repairing every place that differed from a fresh
+    /// search used to move correct pins to wrong results.
     private func shouldRepairCoordinates(for place: Place) -> Bool {
-        guard let sourceURL = place.sourceURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sourceURL.isEmpty else {
-            return false
-        }
-
-        let normalizedAddress = normalizedAddressString(place.address)
-        return normalizedAddress.count >= 10
+        PlaceCoordinateResolver.isSuspicious(latitude: place.latitude, longitude: place.longitude, address: place.address)
+            && !(place.address.isEmpty && (place.sourceURL ?? "").isEmpty)
     }
 
     deinit {
